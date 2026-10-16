@@ -1,0 +1,12 @@
+{
+  "name": "knight",
+  "private": true,
+  "description": "Clash Verge Rev 防 WebRTC / DNS 泄露与代理优化的 Merge 配置和扩展脚本",
+  "type": "module",
+  "scripts": {
+    "test": "node test/verify.mjs"
+  },
+  "devDependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

@@ -1,0 +1,59 @@
+# 模拟一份典型的机场订阅（节点均为虚构）
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+global-client-fingerprint: firefox
+
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  enhanced-mode: redir-host
+  nameserver:
+    - 114.114.114.114
+    - 223.5.5.5
+  fallback:
+    - 8.8.8.8
+    - tls://1.1.1.1:853
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+  nameserver-policy:
+    "+.example-airport.com": 114.114.114.114
+
+proxies:
+  - { name: "剩余流量：120.5 GB", type: ss, server: info.example.com, port: 443, cipher: aes-128-gcm, password: x }
+  - { name: "套餐到期：2027-01-01", type: ss, server: info.example.com, port: 443, cipher: aes-128-gcm, password: x }
+  - { name: "🇭🇰 香港 01", type: ss, server: hk1.example.com, port: 8388, cipher: aes-128-gcm, password: pass }
+  - { name: "🇭🇰 HK02 IPLC", type: trojan, server: hk2.example.com, port: 443, password: pass, sni: hk2.example.com }
+  - { name: "🇹🇼 台湾 01", type: vmess, server: tw1.example.com, port: 443, uuid: 0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3, alterId: 0, cipher: auto, tls: true, network: ws, ws-opts: { path: /ws } }
+  - { name: "🇯🇵 日本 东京 01", type: vless, server: jp1.example.com, port: 443, uuid: 0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3, tls: true, servername: jp1.example.com, network: tcp }
+  - { name: "🇸🇬 SG 01", type: hysteria2, server: sg1.example.com, port: 443, password: pass }
+  - { name: "🇺🇸 美国 洛杉矶 01", type: tuic, server: us1.example.com, port: 443, uuid: 0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3, password: pass }
+  - { name: "🇷🇺 RUS 01", type: ss, server: ru1.example.com, port: 8388, cipher: aes-128-gcm, password: pass, udp: false }
+
+proxy-groups:
+  - name: "🚀 节点选择"
+    type: select
+    proxies: ["♻️ 自动选择", "🇭🇰 香港 01", "🇭🇰 HK02 IPLC", "🇹🇼 台湾 01", "🇯🇵 日本 东京 01", "🇸🇬 SG 01", "🇺🇸 美国 洛杉矶 01", "🇷🇺 RUS 01", DIRECT]
+  - name: "♻️ 自动选择"
+    type: url-test
+    url: http://www.gstatic.com/generate_204
+    interval: 86400
+    proxies: ["剩余流量：120.5 GB", "🇭🇰 香港 01", "🇭🇰 HK02 IPLC", "🇹🇼 台湾 01", "🇯🇵 日本 东京 01", "🇸🇬 SG 01", "🇺🇸 美国 洛杉矶 01", "🇷🇺 RUS 01"]
+  - name: "📢 订阅信息"
+    type: select
+    proxies: ["剩余流量：120.5 GB", "套餐到期：2027-01-01"]
+  - name: "🎯 全球直连"
+    type: select
+    proxies: [DIRECT, "🚀 节点选择"]
+  - name: "🐟 漏网之鱼"
+    type: select
+    proxies: ["🚀 节点选择", "🎯 全球直连"]
+
+rules:
+  - DOMAIN-SUFFIX,google.com,🚀 节点选择
+  - DOMAIN-SUFFIX,baidu.com,🎯 全球直连
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - GEOIP,CN,🎯 全球直连
+  - MATCH,🐟 漏网之鱼

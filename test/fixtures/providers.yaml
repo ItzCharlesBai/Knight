@@ -1,0 +1,23 @@
+# 只用 proxy-providers 提供节点的订阅（节点地址虚构）
+proxy-providers:
+  airport:
+    type: http
+    url: https://sub.example.com/clash
+    path: ./providers/airport.yaml
+    interval: 3600
+    health-check:
+      enable: true
+      url: http://cp.cloudflare.com
+      interval: 600
+
+proxy-groups:
+  - name: Proxy
+    type: select
+    use: [airport]
+  - name: Auto
+    type: url-test
+    use: [airport]
+
+rules:
+  - GEOIP,CN,DIRECT
+  - MATCH,Proxy
