@@ -8,7 +8,9 @@
 #  注意：
 #   · Verge 对 dns 段按子键整体替换：下面写出的每个 dns 子键都会覆盖订阅里的同名键
 #   · ipv6 / unified-delay / tun 由「设置」页接管，写在这里会被丢弃，请在 GUI 中设置
-#   · Merge 无法往规则列表头部插入规则，WebRTC / QUIC / 加密 DNS 拦截规则由配套的 script.js 完成
+#   · Merge 无法往规则列表头部插入规则，WebRTC / 加密 DNS 拦截规则由配套的 script.js 完成
+#   · Merge 只能整体替换 dns 子键：订阅自带的 fake-ip-filter / nameserver-policy 会被下面的覆盖；
+#     script.js 会与订阅原有的设置合并，兼容性更好，推荐只用脚本
 #   · 本文件的取值与 script.js 保持一致，两者可以同时启用
 # =====================================================================
 
@@ -27,28 +29,6 @@ profile:
   store-selected: true             # 记住各分组手动选择的节点
   store-fake-ip: true              # 重启后保留 Fake-IP 映射，避免已有连接断开
 
-# -------------------------- 域名嗅探 --------------------------
-# 应用自带 DoH 或直接用 IP 连接时，从 TLS/HTTP/QUIC 握手里还原域名，保证按域名分流
-sniffer:
-  enable: true
-  force-dns-mapping: true
-  parse-pure-ip: true
-  override-destination: false
-  sniff:
-    HTTP:
-      ports: [80, 8080-8880]
-      override-destination: true
-    TLS:
-      ports: [443, 8443]
-    QUIC:
-      ports: [443, 8443]
-  skip-domain:
-    - "Mijia Cloud"
-    - "dlg.io.mi.com"
-    - "+.push.apple.com"
-    - "+.oray.com"
-    - "+.sunlogin.net"
-
 # ----------------------------- DNS -----------------------------
 # 思路：国内域名 → 国内 DoH（固定直连）；已知境外域名 → 境外 DoH；未收录的域名 → Google DoH 并附带
 # 一个通用的国内 ECS 网段，解析结果与国内 DNS 一致，GEOIP 分流不会误判。境外 DoH 经 respect-rules
@@ -60,14 +40,15 @@ dns:
   prefer-h3: false
   respect-rules: true              # 未固定出站的 DNS 查询按分流规则出站（境外 DoH 走代理）
   cache-algorithm: arc
-  enhanced-mode: fake-ip
-  fake-ip-range: 198.18.0.1/16
   fake-ip-filter-mode: blacklist
-  fake-ip-filter:                  # 这些域名返回真实 IP（局域网、联网检测、NTP、STUN、游戏）
+  fake-ip-filter:                  # 这些域名返回真实 IP（局域网、联网检测、NTP、STUN、游戏、远程控制、运营商一键登录）
     - "+.lan"
     - "+.local"
     - "+.localdomain"
     - "+.home.arpa"
+    - "+.internal"
+    - "+.ts.net"
+    - "WORKGROUP"
     - "+.msftconnecttest.com"
     - "+.msftncsi.com"
     - "localhost.ptlogin2.qq.com"
@@ -77,6 +58,8 @@ dns:
     - "time.*.gov"
     - "time.*.edu.cn"
     - "time.*.apple.com"
+    - "time-ios.apple.com"
+    - "time1.cloud.tencent.com"
     - "ntp.*.com"
     - "+.pool.ntp.org"
     - "+.ntp.org.cn"
@@ -88,6 +71,21 @@ dns:
     - "+.stun.playstation.net"
     - "xbox.*.microsoft.com"
     - "+.xboxlive.com"
+    - "+.battlenet.com.cn"
+    - "+.wotgame.cn"
+    - "+.wggames.cn"
+    - "+.wowsgame.cn"
+    - "+.wargaming.net"
+    - "+.mcdn.bilivideo.cn"
+    - "+.oray.com"
+    - "+.sunlogin.net"
+    - "+.cmpassport.com"
+    - "id6.me"
+    - "open.e.189.cn"
+    - "mdn.open.wo.cn"
+    - "opencloud.wostore.cn"
+    - "auth.wosms.cn"
+    - "+.10099.com.cn"
   default-nameserver:              # 仅用于解析 DoH 服务器域名（下面都写的 IP，基本用不到）
     - 223.5.5.5
     - 119.29.29.29

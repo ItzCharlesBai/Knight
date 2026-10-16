@@ -98,15 +98,9 @@ const BYPASS = [
   "IP-CIDR,120.53.53.53/32,REJECT,no-resolve",
   "IP-CIDR6,2400:3200::1/128,REJECT,no-resolve",
   "IP-CIDR6,2400:3200:baba::1/128,REJECT,no-resolve",
-  "DST-PORT,853,REJECT",
 ];
-const leakHead = (t) => [
-  ...BYPASS,
-  `DST-PORT,3478-3479,${t}`,
-  `DST-PORT,5349-5350,${t}`,
-  `DST-PORT,19302-19309,${t}`,
-  "AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((GEOSITE,cn)))),REJECT",
-];
+const STUN = "3478-3479/5349-5350/19302-19309";
+const leakHead = (t) => [...BYPASS, `AND,((DST-PORT,${STUN}),(OR,((GEOSITE,cn),(GEOIP,CN)))),${t}`];
 const ECS = "ecs=223.5.5.0/24&ecs-override=true";
 
 const outputs = {};
@@ -119,54 +113,89 @@ test("enhance：只在最前面加防泄露规则，订阅自己的分流原样�
   const head = leakHead("🚀 节点选择");
   assert.deepEqual(config.rules.slice(0, head.length), head);
   assert.deepEqual(config.rules.slice(head.length), sub.rules);
-  // 不再为 DNS 服务器添加改变分流的 IP 规则
-  assert.ok(!config.rules.some((r) => /^IP-CIDR,(1\.1\.1\.1|8\.8\.8\.8)\//.test(r)));
+  // 不拦 QUIC、不拦整个 853 端口、不为 DNS 服务器加改变分流的规则
+  assert.ok(!config.rules.some((r) => /UDP\),\(DST-PORT,443|^DST-PORT,853|^IP-CIDR,(1\.1\.1\.1|8\.8\.8\.8)\//.test(r)));
   assert.equal(logs.filter(([l]) => l === "warn").length, 0);
   checkReferences(config);
   outputs["enhance"] = config;
 });
 
-test("enhance：清理信息节点、补 UDP 与 TLS 指纹、调整测速", () => {
-  const { config } = runScript(withTun(fixture("subscription.yaml")));
-  const names = config.proxies.map((p) => p.name);
-  assert.ok(!names.some((n) => /剩余|到期/.test(n)));
-  const byName = Object.fromEntries(config.proxies.map((p) => [p.name, p]));
-  assert.equal(byName["🇷🇺 RUS 01"].udp, true);
-  assert.equal(byName["🇭🇰 香港 01"].udp, true);
-  assert.equal(byName["🇭🇰 HK02 IPLC"]["client-fingerprint"], "chrome");
-  assert.equal(byName["🇹🇼 台湾 01"]["client-fingerprint"], "chrome");
-  assert.equal(byName["🇯🇵 日本 东京 01"]["client-fingerprint"], "chrome");
-  assert.equal(byName["🇭🇰 香港 01"]["client-fingerprint"], undefined);
-  assert.equal(byName["🇸🇬 SG 01"]["client-fingerprint"], undefined);
-  assert.equal(config["global-client-fingerprint"], undefined);
-
+test("默认不改节点：除信息节点外，节点和全局指纹字段保持原样", () => {
+  const sub = fixture("subscription.yaml");
+  const { config } = runScript(withTun(sub));
+  const kept = sub.proxies.filter((p) => !/剩余|到期/.test(p.name));
+  assert.deepEqual(config.proxies, kept); // 节点一个字段都不改
+  assert.equal(config["global-client-fingerprint"], undefined); // 内核已忽略的废弃字段，只删不转写
+  assert.equal(config.sniffer, undefined); // 默认不加嗅探
   const groups = Object.fromEntries(config["proxy-groups"].map((g) => [g.name, g]));
   assert.deepEqual(groups["📢 订阅信息"].proxies, ["REJECT"]);
   assert.ok(!groups["♻️ 自动选择"].proxies.includes("剩余流量：120.5 GB"));
   assert.equal(groups["♻️ 自动选择"].url, "https://www.gstatic.com/generate_204");
   assert.equal(groups["♻️ 自动选择"].interval, 300);
-  assert.equal(groups["♻️ 自动选择"].tolerance, 50);
+  assert.equal(groups["♻️ 自动选择"].timeout, undefined); // 不改测速超时
   checkReferences(config);
 });
 
-test("DNS：国内固定直连，境外固定走代理组，未收录域名带 ECS", () => {
+test("可选优化：手动打开后补 UDP、TLS 指纹、嗅探、QUIC 拦截", () => {
+  const { config } = runScript(withTun(fixture("subscription.yaml")), { forceUDP: true, clientFingerprint: "chrome", sniffer: true, blockQUIC: true });
+  const byName = Object.fromEntries(config.proxies.map((p) => [p.name, p]));
+  assert.equal(byName["🇷🇺 RUS 01"].udp, true);
+  assert.equal(byName["🇭🇰 HK02 IPLC"]["client-fingerprint"], "chrome");
+  assert.equal(byName["🇹🇼 台湾 01"]["client-fingerprint"], "chrome");
+  assert.equal(byName["🇭🇰 香港 01"]["client-fingerprint"], undefined); // ss 不加
+  assert.equal(config.sniffer.enable, true);
+  assert.equal(config.sniffer.sniff.HTTP["override-destination"], undefined); // 不改写目标地址
+  assert.ok(config.rules.includes("AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((GEOSITE,cn)))),REJECT"));
+  checkReferences(config);
+  outputs["optional-on"] = config;
+});
+
+test("信息节点保护：超过一半节点名带关键字时一个都不删", () => {
+  const sub = fixture("subscription.yaml");
+  sub.proxies.forEach((p) => (p.name += " | 官网 example.com"));
+  sub["proxy-groups"].forEach((g) => (g.proxies = g.proxies.map((n) => (n === "DIRECT" || n.startsWith("♻️") || n.startsWith("🚀") || n.startsWith("🎯") ? n : n + " | 官网 example.com"))));
+  const { config, logs } = runScript(withTun(sub));
+  assert.equal(config.proxies.length, sub.proxies.length);
+  assert.ok(logs.some(([l, m]) => l === "warn" && /未删除/.test(m)));
+});
+
+test("DNS：只替换上游，保留订阅的模式、监听、自定义解析条目", () => {
   const { config } = runScript(withTun(fixture("subscription.yaml")));
   const dns = config.dns;
-  assert.equal(dns["enhanced-mode"], "fake-ip");
+  assert.equal(dns["enhanced-mode"], "redir-host"); // 订阅原本就是 redir-host
   assert.equal(dns["respect-rules"], true);
   assert.equal(dns.ipv6, false);
   assert.equal(dns.listen, "0.0.0.0:1053");
   assert.equal(dns.fallback, undefined);
   assert.equal(dns["fallback-filter"], undefined);
-  assert.deepEqual(dns.nameserver, [
-    `https://8.8.8.8/dns-query#🚀 节点选择&${ECS}`,
-    `https://8.8.4.4/dns-query#🚀 节点选择&${ECS}`,
-  ]);
+  assert.deepEqual(dns.nameserver, [`https://8.8.8.8/dns-query#🚀 节点选择&${ECS}`, `https://8.8.4.4/dns-query#🚀 节点选择&${ECS}`]);
   assert.deepEqual(dns["nameserver-policy"], {
     "geosite:cn,private": ["https://223.5.5.5/dns-query#DIRECT", "https://1.12.12.12/dns-query#DIRECT"],
     "geosite:geolocation-!cn": ["https://1.1.1.1/dns-query#🚀 节点选择", "https://8.8.8.8/dns-query#🚀 节点选择"],
+    "+.example-airport.com": "114.114.114.114",
   });
   assert.deepEqual(dns["direct-nameserver"], dns["nameserver-policy"]["geosite:cn,private"]);
+});
+
+test("DNS：Fake-IP 过滤列表与订阅合并；白名单模式保持原样", () => {
+  const base = fixture("subscription.yaml");
+  base.dns = { enable: true, "enhanced-mode": "fake-ip", "fake-ip-filter": ["+.corp.example", "+.lan"] };
+  const merged = runScript(withTun(base)).config.dns;
+  assert.equal(merged["enhanced-mode"], "fake-ip");
+  assert.equal(merged["fake-ip-filter"][0], "+.corp.example");
+  assert.equal(merged["fake-ip-filter"].filter((d) => d === "+.lan").length, 1);
+  assert.ok(merged["fake-ip-filter"].includes("+.msftconnecttest.com"));
+  outputs["fake-ip-merge"] = runScript(withTun(base)).config;
+
+  base.dns = { enable: true, "enhanced-mode": "fake-ip", "fake-ip-filter-mode": "whitelist", "fake-ip-filter": ["+.google.com"] };
+  const white = runScript(withTun(base)).config.dns;
+  assert.deepEqual(white["fake-ip-filter"], ["+.google.com"]);
+  assert.equal(white["fake-ip-filter-mode"], "whitelist");
+
+  delete base.dns;
+  const none = runScript(withTun(base)).config.dns;
+  assert.equal(none["enhanced-mode"], "fake-ip");
+  assert.equal(none["fake-ip-range"], "198.18.0.1/16");
 });
 
 test("DNS：关闭 ECS 时未收录域名改用 Cloudflare/Google", () => {
@@ -180,16 +209,21 @@ test("DNS：分组名含 & 时退回按规则出站，不生成错误地址", ()
   const { config, logs } = runScript(withTun(JSON.parse(text)));
   assert.deepEqual(config.dns.nameserver, [`https://8.8.8.8/dns-query#${ECS}`, `https://8.8.4.4/dns-query#${ECS}`]);
   assert.ok(logs.some(([l, m]) => l === "warn" && /按规则出站/.test(m)));
-  assert.ok(config.rules.includes("DST-PORT,3478-3479,Proxy & Co"));
+  assert.ok(config.rules.some((r) => r.startsWith("AND,((DST-PORT,") && r.endsWith(",Proxy & Co")));
 });
 
-test("merge.yaml 与 script.js 写入的值一致（脚本额外固定了代理组）", () => {
+test("merge.yaml 与 script.js 写入的 DNS 值一致（脚本额外固定代理组、保留订阅条目）", () => {
   const sub = fixture("subscription.yaml");
+  sub.dns["enhanced-mode"] = "fake-ip"; // redir-host 下脚本不写 fake-ip-filter（用不到），按 Fake-IP 订阅比较
   const merged = useMerge(MERGE, sub);
   const { config: scripted } = runScript(withTun(sub));
   const dropGroup = (v) => JSON.parse(JSON.stringify(v).split("#🚀 节点选择&").join("#").split("#🚀 节点选择\"").join("\""));
-  for (const key of Object.keys(scripted.dns)) {
-    if (key === "listen") continue;
+  for (const key of Object.keys(MERGE.dns)) {
+    if (key === "fallback") continue;
+    if (key === "nameserver-policy") {
+      for (const k of Object.keys(MERGE.dns[key])) assert.deepEqual(MERGE.dns[key][k], dropGroup(scripted.dns[key][k]), `policy ${k} 不一致`);
+      continue;
+    }
     assert.deepEqual(merged.dns[key], dropGroup(scripted.dns[key]), `dns.${key} 不一致`);
   }
   assert.deepEqual(merged.dns.fallback, []);
@@ -199,11 +233,11 @@ test("merge.yaml 与 script.js 写入的值一致（脚本额外固定了代理�
   outputs["merge-only"] = merged;
 });
 
-test("WebRTC / 加密 DNS 拦截可以分别关闭", () => {
+test("WebRTC：proxy 只改走国内 STUN；reject / off 可选", () => {
   const sub = withTun(fixture("subscription.yaml"));
   const reject = runScript(sub, { webrtc: "reject" }).config.rules;
-  assert.ok(reject.includes("DST-PORT,3478-3479,REJECT"));
-  const off = runScript(sub, { webrtc: "off", blockQUIC: false, blockDNSBypass: false }).config.rules;
+  assert.ok(reject.includes(`DST-PORT,${STUN},REJECT`));
+  const off = runScript(sub, { webrtc: "off", blockDNSBypass: false }).config.rules;
   assert.deepEqual(off, sub.rules);
 });
 
@@ -218,7 +252,7 @@ test("extraRules 排在最前，重复运行不叠加规则", () => {
 test("lanDNS：局域网域名交给路由器，固定直连，且排在 geosite 之前", () => {
   const { config } = runScript(withTun(fixture("subscription.yaml")), { lanDNS: "192.168.1.1" });
   const policy = config.dns["nameserver-policy"];
-  assert.deepEqual(Object.keys(policy), ["+.lan,+.local,+.localdomain,+.home.arpa", "geosite:cn,private", "geosite:geolocation-!cn"]);
+  assert.deepEqual(Object.keys(policy).slice(0, 3), ["+.lan,+.local,+.localdomain,+.home.arpa", "geosite:cn,private", "geosite:geolocation-!cn"]);
   assert.deepEqual(policy["+.lan,+.local,+.localdomain,+.home.arpa"], ["192.168.1.1#DIRECT"]);
   assert.ok(!config.rules.some((r) => r.includes("192.168.1.1")));
   outputs["lan-dns"] = config;
@@ -259,24 +293,25 @@ test("full：按节点生成地区组与服务分流", () => {
   outputs["full"] = config;
 });
 
-test("proxy-providers 订阅：enhance 识别 Proxy 组，full 建出全部地区组", () => {
+test("proxy-providers 订阅：不过滤代理集合节点；full 下 AI 服务默认走节点选择", () => {
   const enhance = runScript(withTun(fixture("providers.yaml"))).config;
-  assert.ok(enhance.rules.includes("DST-PORT,3478-3479,Proxy"));
+  assert.ok(enhance.rules.includes(leakHead("Proxy").at(-1)));
   assert.ok(enhance.dns.nameserver[0].includes("#Proxy&"));
   assert.equal(enhance["proxy-providers"].airport["health-check"].url, "https://www.gstatic.com/generate_204");
-  assert.ok(new RegExp(enhance["proxy-providers"].airport["exclude-filter"]).test("剩余流量：1 GB"));
+  assert.equal(enhance["proxy-providers"].airport["exclude-filter"], undefined);
   checkReferences(enhance);
   outputs["providers-enhance"] = enhance;
 
   const full = runScript(withTun(fixture("providers.yaml")), { mode: "full" }).config;
   assert.equal(full["proxy-groups"].filter((g) => g.filter).length, 5);
+  assert.equal(full["proxy-groups"].find((g) => g.name === "🤖 AI 服务").proxies[0], "🚀 节点选择");
   checkReferences(full);
   outputs["providers-full"] = full;
 });
 
 test("没有任何节点时不报错，WebRTC 直接拦截，境外 DNS 按规则出站", () => {
   const { config, logs } = runScript(withTun({ proxies: [], rules: ["MATCH,DIRECT"] }), { mode: "full" });
-  assert.ok(config.rules.includes("DST-PORT,3478-3479,REJECT"));
+  assert.ok(config.rules.includes(`DST-PORT,${STUN},REJECT`));
   assert.deepEqual(config.dns.nameserver, [`https://8.8.8.8/dns-query#${ECS}`, `https://8.8.4.4/dns-query#${ECS}`]);
   assert.ok(logs.some(([l]) => l === "warn"));
 });

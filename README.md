@@ -4,10 +4,12 @@
 
 | 文件 | 放在哪 | 作用 |
 | --- | --- | --- |
-| [`clash-verge-rev/script.js`](clash-verge-rev/script.js) | 订阅 → **全局扩展脚本** | 全部功能：DNS、嗅探、性能参数、前置防泄露规则、节点和分组优化，可选完整分流 |
-| [`clash-verge-rev/merge.yaml`](clash-verge-rev/merge.yaml) | 订阅 → **全局扩展覆写配置** | DNS、嗅探、性能参数（不含规则） |
+| [`clash-verge-rev/script.js`](clash-verge-rev/script.js) | 订阅 → **全局扩展脚本** | 全部功能：防 DNS / WebRTC 泄露，以及可选的优化和完整分流 |
+| [`clash-verge-rev/merge.yaml`](clash-verge-rev/merge.yaml) | 订阅 → **全局扩展覆写配置** | 只有 DNS 和性能参数（不含规则） |
 
-**只装 `script.js` 就够了。** `merge.yaml` 适合不想用脚本的人；Merge 没办法把规则插到规则列表最前面，所以 WebRTC 规则只能靠脚本来加。两个都启用也没问题，它们写入的值相同。
+**只装 `script.js` 就够了，推荐只用它。** 脚本会在订阅原有的 DNS 设置上叠加；Merge 只能整体替换，还没办法把规则插到最前面，所以 WebRTC 防护只能靠脚本。
+
+**默认原则：只做防泄露，不改节点、不拦正常流量、不打乱你的分流。** 拦截 QUIC、补 UDP / TLS 指纹、域名嗅探这些会改变流量走法的优化都默认关闭，需要时在 `CONFIG` 里手动打开（见第六节）。
 
 > 适用版本：Clash Verge Rev 2.x，内核 mihomo ≥ 1.19。
 
@@ -17,26 +19,31 @@
 
 | 泄露 | 怎么发生的 | 本方案怎么处理 |
 | --- | --- | --- |
-| **DNS 泄露** | 订阅常用国内 DNS 解析所有域名，或者带着 `fallback`，运营商能看到你查了哪些境外网站 | 使用 Fake-IP，并清掉订阅自带的 `fallback`。国内域名交给国内 DoH（固定直连）；已知境外域名交给境外 DoH（**固定走代理组**） |
+| **DNS 泄露** | 订阅常用国内 DNS 解析所有域名，或者带着 `fallback`，运营商能看到你查了哪些境外网站 | 只替换 DNS 上游并清掉 `fallback`：国内域名交给国内 DoH（固定直连），已知境外域名交给境外 DoH（**固定走代理组**）。订阅原有的 Fake-IP / redir-host 模式、Fake-IP 过滤列表、自定义解析条目都保留 |
 | **DNS 跟着分流规则直连** | 只靠 `respect-rules` 时，如果「漏网之鱼」这类分组选了 DIRECT，境外 DNS 也会跟着直连 | 脚本在每个 DNS 地址上直接绑定出站（`#🚀 节点选择`、`#DIRECT`），不经过分流规则。也因此不需要再为 DNS 服务器加规则，你的分流规则保持原样 |
 | **规则匹配引起的解析** | `GEOIP` 这类规则要先把域名解析成 IP 才能匹配 | 没收录在国内 / 境外列表里的域名交给 Google DoH，经代理发出，并附带一个通用的国内 ECS 网段（不是你的 IP）。解析结果和国内 DNS 一致，`GEOIP,CN` 判断不会把国内网站误判成境外 |
-| **浏览器 / 系统自带的国内加密 DNS** | 浏览器「安全 DNS」或系统 DoH 设成阿里、腾讯时会绕过 Clash；DoT（853 端口）同理 | 拦截这些端点和 853 端口，它们会自动回落到普通 DNS，由 TUN 劫持交给 Clash。内核自己的 DNS 查询不受影响 |
-| **WebRTC 泄露** | 浏览器用 UDP 去问 STUN 服务器你的公网 IP。系统代理模式下 UDP 根本不经过 Clash；就算开了 TUN，如果 STUN 服务器在国内，也会被 `GEOIP,CN` 规则放行直连 | 要求开启 TUN；STUN/TURN 端口（3478-3479、5349-5350、19302-19309）不管目标在哪，一律走代理（或直接拦截） |
-| **Windows 多网卡 / IPv6 DNS** | Windows 会同时向每块网卡的 DNS（包括路由器和 IPv6 DNS）发查询，这些查询**不进 TUN**，配置文件管不到 | 必须开启 TUN 的「严格路由」。脚本检测到没开会在日志里提醒 |
-| **IPv6 泄露** | Verge 的 IPv6 关闭时，TUN 不接管 IPv6，IPv6 流量和 IPv6 DNS 会直接出去 | DNS 不返回 IPv6 地址；建议在 Verge 里打开 IPv6，让 TUN 接管（见第三节） |
+| **浏览器 / 系统自带的国内加密 DNS** | 浏览器「安全 DNS」或系统 DoH 设成阿里、腾讯、360 时会绕过 Clash | 只拦截这几家的 DoH / DoT 服务器，它们会自动回落到普通 DNS，由 TUN 劫持交给 Clash。内核自己的 DNS 查询不受影响 |
+| **WebRTC 泄露** | 浏览器用 UDP 去问 STUN 服务器你的公网 IP。系统代理模式下 UDP 根本不经过 Clash；就算开了 TUN，STUN 服务器在国内时也会被 `GEOIP,CN` 规则放行直连 | 要求开启 TUN；**发往国内的** STUN/TURN 请求（3478-3479、5349-5350、19302-19309 端口）改走代理。发往国外的照你原来的规则走，国外通话软件的分流不受影响 |
+| **Windows 多网卡 / IPv6 DNS** | Windows 会同时向每块网卡的 DNS（包括路由器和 IPv6 DNS）发查询，这些查询**不进 TUN**，配置文件管不到 | 开启 TUN 的「严格路由」：它会挡住发往其他网卡的 DNS，并在 TUN 不接管 IPv6 时断开 IPv6，软件自动改用 IPv4。脚本检测到没开会在日志里提醒 |
+| **IPv6 泄露** | 代理只处理 IPv4 时，IPv6 流量可能直接出去 | DNS 不返回 IPv6 地址，配合严格路由；Verge 的 IPv6 保持关闭（见第三节） |
 
 ### 优化项
 
+默认开启（不改变流量走向）：
+
 - `tcp-concurrent`：一个域名解析出多个 IP 时同时握手，用最快的那个
-- 域名嗅探（sniffer）：应用直接用 IP 连接时也能按域名分流
-- 境外 QUIC（UDP 443）被拦截，浏览器会改用 TCP。多数机场节点走 TCP 更稳更快，国内 QUIC 不受影响
-- 删除「剩余流量 / 到期时间 / 官网」这类信息节点，它们不会再混进自动测速
-- 给支持 UDP 的协议补上 `udp: true`（机场漏配时语音和 WebRTC 会失败）
-- 给 TLS 类节点补 uTLS 指纹（`chrome`）。新版 mihomo 已经删掉了 `global-client-fingerprint`，脚本会把它改成逐个节点设置
-- 统一测速参数：`https://www.gstatic.com/generate_204`，间隔 300 秒，容差 50 ms
+- 删除「剩余流量 / 到期时间 / 官网」这类信息节点，它们不会再混进自动测速。超过一半的节点名都带这些字样时，判断为正常节点，一个都不删
+- 统一测速地址和间隔：`https://www.gstatic.com/generate_204`，300 秒，容差 50 ms（不改测速超时）
 - 记住手动选择的节点，重启后保留 Fake-IP 映射
 - GEO 数据走国内可以直连的 jsDelivr 镜像，并自动更新
-- **full 模式（可选）**：地区自动测速分组，AI / GitHub / YouTube / Google / Telegram / Netflix / 微软 / 苹果 各自分流，广告拦截，规则集使用 MetaCubeX 的 `.mrs` 格式
+
+默认关闭（会改变流量走法或节点连接方式，个别软件可能因此打不开，按需打开）：
+
+- `blockQUIC`：拦截境外 QUIC（UDP 443），浏览器会改用 TCP
+- `forceUDP`：给支持 UDP 的协议补上 `udp: true`
+- `clientFingerprint`：给 TLS 类节点补 uTLS 指纹
+- `sniffer`：域名嗅探，应用直接用 IP 连接时也能按域名分流
+- **full 模式**：地区自动测速分组，AI / GitHub / YouTube / Google / Telegram / Netflix / 微软 / 苹果 各自分流，广告拦截，规则集使用 MetaCubeX 的 `.mrs` 格式。它会替换订阅的分组和规则
 
 ---
 
@@ -61,8 +68,8 @@
 | 位置 | 怎么设 | 为什么 |
 | --- | --- | --- |
 | 设置 → 系统设置 → **虚拟网卡模式** | **开启** | WebRTC 这类 UDP 流量只有在 TUN 模式下才会经过 Clash |
-| 「虚拟网卡模式」文字右边的**齿轮图标**（不是开关，点开是一个叫「虚拟网卡模式」的窗口） | **严格路由：开（必须）**，改完点「保存」；DNS 劫持：`any:53`（默认值，TCP 和 UDP 都会劫持）；TUN 模式堆栈：Mixed 或 gVisor | 不开严格路由时，Windows 发给路由器和 IPv6 DNS 的查询会绕过 TUN，这是开了本方案后**最常见的残留 DNS 泄露** |
-| 设置 → Clash 设置 → **IPv6** | **开启**（推荐） | 开启后 TUN 才会接管 IPv6 流量和 IPv6 DNS。本方案仍然让 DNS 不返回 IPv6 地址，网页还是走 IPv4，分流不变 |
+| 「虚拟网卡模式」文字右边的**齿轮图标**（不是开关，点开是一个叫「虚拟网卡模式」的窗口） | **严格路由：开**，改完点「保存」；DNS 劫持：`any:53`（默认值，TCP 和 UDP 都会劫持）；TUN 模式堆栈：Mixed 或 gVisor | 不开严格路由时，Windows 发给路由器和 IPv6 DNS 的查询会绕过 TUN，这是开了本方案后**最常见的残留 DNS 泄露**。如果 WSL、虚拟机或其他 VPN 因此出问题，再关掉它 |
+| 设置 → Clash 设置 → **IPv6** | **关闭**（Verge 默认） | 很多机场节点不支持 IPv6。开启后 TUN 会接管 IPv6，直接用 IPv6 地址连接的软件就会失败。关闭并配合严格路由，IPv6 也不会泄露 |
 | 设置 → Clash 设置 → **DNS 覆写** | **关闭** | 开着的话，Verge 会用自己的 DNS 设置盖掉本方案 |
 | 设置 → Clash 设置 → 统一延迟 | 开启（可选） | 测速结果更准 |
 
@@ -95,11 +102,27 @@
 ### 测试仍然看到国内 DNS？逐项排查
 
 1. **严格路由没开**（Windows 上最常见）：设置 → 系统设置 →「虚拟网卡模式」文字右边的齿轮图标 → 严格路由，打开后点「保存」再重新测试。设置页没有这一项的旧版本，脚本会自动打开它。
-2. **IPv6 DNS 绕过**：如果测出的国内 DNS 是 IPv6 地址（`240e:`、`2408:`、`2409:` 开头），把 Verge 的 IPv6 打开，同时确认严格路由已开。
+2. **IPv6 DNS 绕过**：如果测出的国内 DNS 是 IPv6 地址（`240e:`、`2408:`、`2409:` 开头），确认严格路由已开。仍然有的话，可以在系统网卡设置里关掉 IPv6。
 3. **TUN 没开或没生效**：脚本日志里有 `[防泄露] 未开启 TUN` 的提示就说明没开。
 4. **浏览器安全 DNS 还开着**：按第四节关掉。脚本已经拦截了国内 DoH，但浏览器如果用的是「自定义」严格模式，被拦截后可能打不开网页，关掉即可。
 5. **其他 VPN / 加速器同时在运行**：它们可能自己接管 DNS，先退出再测试。
 6. **旧缓存干扰**：改完设置后退出并重新打开 Verge（或重启内核），再完全关闭、重新打开浏览器后测试。浏览器和系统缓存的旧解析结果会让测试失真。
+
+### 某个软件打不开？
+
+1. 先确认是不是扩展导致的：把「全局扩展脚本」暂时换成下面三行并保存，看软件能否恢复。
+
+   ```js
+   function main(config, profileName) {
+     return config;
+   }
+   ```
+
+2. 确认是扩展导致的话，恢复脚本，打开 Verge 的「连接」页，再打开那个软件，找到它的连接，看命中了哪条规则：
+   - 命中 `REJECT`：是加密 DNS 拦截规则，把 `blockDNSBypass` 设为 `false`。
+   - 命中 `AND,((DST-PORT,3478...`：是 WebRTC 规则，把 `webrtc` 设为 `"off"`，或用 `extraRules` 给这个软件放行。
+3. 如果你打开过默认关闭的优化，逐个关回去排查。
+4. 还是不行，把软件名和「连接」页 / 「日志」页里相关的几行发给我。
 
 ---
 
@@ -109,16 +132,17 @@
 | --- | --- | --- |
 | `mode` | `"enhance"` | `enhance`：保留订阅自带的分组和规则，只叠加防泄露规则和优化；`full`：订阅只负责提供节点，分组和分流由脚本生成 |
 | `mainGroup` | `""` | 境外 DNS 和 WebRTC 用哪个分组出站。留空会自动识别（优先找名字里带「节点选择 / Proxy」的 select 分组） |
-| `webrtc` | `"proxy"` | `proxy` 走代理（通话可用，只暴露节点 IP）；`reject` 直接拦截（最彻底，网页音视频通话可能失败）；`off` 不处理 |
-| `blockQUIC` | `true` | 拦截境外 QUIC，让浏览器回落到 TCP |
+| `webrtc` | `"proxy"` | `proxy`：发往国内的 STUN 请求改走代理，发往国外的照原规则走；`reject`：拦截所有 STUN 请求（最彻底，网页音视频通话可能失败）；`off`：不处理 |
+| `blockQUIC` | `false` | 拦截境外 QUIC，让浏览器回落到 TCP |
 | `dnsIPv6` | `false` | DNS 是否返回 IPv6 地址 |
 | `dnsECS` | `"223.5.5.0/24"` | 未收录域名用 Google DoH 解析时附带的国内 ECS 网段（不是你的 IP），让 `GEOIP` 分流和用国内 DNS 时一致。填 `""` 关闭 |
-| `blockDNSBypass` | `true` | 拦截浏览器 / 系统里设置的国内 DoH（阿里、腾讯、360）和所有 DoT/DoQ（853 端口），让它们回落到被 Clash 接管的普通 DNS |
+| `blockDNSBypass` | `true` | 拦截浏览器 / 系统里设置的阿里、腾讯、360 的 DoH / DoT 服务器，让它们回落到被 Clash 接管的普通 DNS |
 | `lanDNS` | `""` | 局域网主机名（`router.lan`、`nas.local`）用哪个 DNS 解析，填路由器 IP，比如 `"192.168.1.1"` |
-| `removeInfoNodes` | `true` | 删除信息节点（`proxy-providers` 里的节点由内核通过 `exclude-filter` 过滤） |
-| `forceUDP` | `true` | 为 ss / ssr / vmess / vless / trojan / socks5 / anytls 开启 UDP |
-| `clientFingerprint` | `"chrome"` | TLS 类节点没有指纹时补上的 uTLS 指纹，填 `""` 表示不处理 |
-| `healthCheck` | 见文件 | 自动测速分组的测速地址、间隔、容差和超时 |
+| `removeInfoNodes` | `true` | 删除订阅里直接写出的信息节点；超过一半的节点名带关键字时不删。`proxy-providers` 里的节点不处理 |
+| `forceUDP` | `false` | 为 ss / ssr / vmess / vless / trojan / socks5 / anytls 开启 UDP |
+| `clientFingerprint` | `""` | TLS 类节点没有指纹时补上的 uTLS 指纹，比如 `"chrome"`；`""` 表示不处理 |
+| `sniffer` | `false` | 开启域名嗅探（只用嗅探到的域名匹配规则，不改写连接目标） |
+| `healthCheck` | 见文件 | 自动测速分组的测速地址、间隔和容差 |
 | `extraRules` | `[]` | 优先级最高的自定义规则，排在防泄露规则前面 |
 | `adBlock` | `true` | full 模式下的广告拦截分组（可以在面板里切到 DIRECT） |
 | `ruleBase` / `geoBase` | jsDelivr 镜像 | 规则集和 GEO 数据的下载地址 |
@@ -138,7 +162,7 @@
 WebRTC 走代理需要节点支持 UDP。换一个 UDP 好的节点（Hysteria2、TUIC 这类协议通常更合适）。如果实在不行，可以把 `webrtc` 改成 `"off"`，但这样就没有 WebRTC 防护了。
 
 **游戏、游戏主机、FaceTime 的 NAT 类型变差？**
-它们也用 STUN 端口，所以同样被送进了代理。用 `extraRules` 给它们放行，例如：
+它们发往国内服务器的 STUN 请求会被送进代理。用 `extraRules` 给它们放行，例如：
 
 ```js
 extraRules: [
@@ -153,14 +177,12 @@ extraRules: [
 **规则集或 GEO 数据下载失败？**
 把 `ruleBase` / `geoBase`（或 `merge.yaml` 里的 `geox-url`）换成你能访问的镜像，比如把 `fastly.jsdelivr.net` 换成 `testingcf.jsdelivr.net`。能直连 GitHub 的话，也可以用 `https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo` 和 `https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest`。
 
-**某个境外网站必须用 HTTP/3？**
-把 `blockQUIC` 设成 `false`。
 
 **订阅更新后设置会丢吗？**
 不会。每次生成配置时扩展都会重新执行一遍。
 
 **只用 `merge.yaml` 时，内核日志提示 `global-client-fingerprint` 已移除？**
-这个字段是订阅自带的。Merge 只能覆盖键、删不掉键。这条报错不影响使用，启用 `script.js` 后会被自动处理掉。
+这个字段是订阅自带的，新版内核已经不读它，所以这条报错不影响使用。Merge 只能覆盖键、删不掉键；启用 `script.js` 后会删掉这个字段，但不会把它转写到节点上。
 
 ---
 
@@ -175,4 +197,4 @@ npm test
 MIHOMO_BIN=/path/to/mihomo GEODATA_DIR=/path/to/geodata npm test
 ```
 
-修改 `merge.yaml` 或 `script.js` 中任意一个的 DNS / 嗅探 / 性能参数时，另一个也要同步改。测试会检查两边是否一致。
+修改 `merge.yaml` 或 `script.js` 中任意一个的 DNS / 性能参数时，另一个也要同步改。测试会检查两边是否一致。

@@ -5,8 +5,10 @@
  * 内核：mihomo ≥ 1.19（Clash Verge Rev 自带）
  * 用法：订阅 → 全局扩展脚本 → 编辑文件 → 全选粘贴本文件 → 保存
  *       只想对某个订阅生效：右键该订阅 → 扩展脚本
- * 说明：可单独使用，也可与 merge.yaml 同时启用（两者的 DNS/嗅探参数一致，脚本额外把境外 DNS 固定到代理组）。
+ * 说明：可单独使用，也可与 merge.yaml 同时启用（两者的 DNS 参数一致，脚本额外把境外 DNS 固定到代理组）。
  *       WebRTC 防护依赖 TUN（虚拟网卡）模式，详见 README。
+ * 原则：默认只做防 DNS / WebRTC 泄露，不改节点、不拦正常流量、不覆盖订阅原有的 DNS 兼容设置；
+ *       其余优化默认关闭，需要时在下面手动打开。
  */
 
 // ============================== 可调参数 ==============================
@@ -19,13 +21,15 @@ const CONFIG = {
   mainGroup: "",
 
   // WebRTC / STUN 流量：
-  //   "proxy"  强制走代理，网页通话可用，对外只暴露节点 IP（推荐）
-  //   "reject" 直接拦截，最彻底，但网页音视频通话可能无法建立
+  //   "proxy"  发往国内 STUN 服务器的请求改走代理（会直连暴露真实 IP 的只有这部分）；
+  //            发往国外的照你原来的规则走（推荐）
+  //   "reject" 拦截所有 STUN 请求，最彻底，但网页音视频通话可能无法建立
   //   "off"    不处理
   webrtc: "proxy",
 
-  // 拦截境外 QUIC（UDP 443），让浏览器回落到 TCP；多数机场节点走 TCP 更稳更快
-  blockQUIC: true,
+  // ---- 以下优化默认关闭：它们会改变流量走法或节点连接方式，个别软件可能因此打不开 ----
+  // 拦截境外 QUIC（UDP 443），让浏览器回落到 TCP
+  blockQUIC: false,
 
   // DNS 是否返回 IPv6 地址。关闭可避免 IPv6 流量绕开代理
   dnsIPv6: false,
@@ -35,28 +39,31 @@ const CONFIG = {
   // 查询仍经代理发出，运营商看不到。填 "" 关闭（未收录的国内网站可能被判成境外走代理）
   dnsECS: "223.5.5.0/24",
 
-  // 拦截绕过 Clash 的国内加密 DNS（浏览器/系统里设置的阿里、腾讯 DoH，以及所有 DoT/DoQ），
+  // 拦截绕过 Clash 的国内加密 DNS（浏览器/系统里设置的阿里、腾讯、360 的 DoH/DoT），
   // 它们会自动回落到普通 DNS，由 Clash 接管。内核自己的 DNS 查询不受影响
   blockDNSBypass: true,
 
   // 局域网主机名（router.lan、nas.local 等）交给哪个 DNS 解析，填路由器 IP，如 "192.168.1.1"；留空不处理
   lanDNS: "",
 
-  // 删除“剩余流量 / 到期时间 / 官网”这类信息节点，避免污染自动测速
+  // 删除“剩余流量 / 到期时间 / 官网”这类信息节点，避免污染自动测速。
+  // 要删的超过一半时视为节点名本身带这些字样，一个都不删
   removeInfoNodes: true,
 
-  // 为支持 UDP 的协议补上 udp: true（机场漏配时 UDP/WebRTC 会失败）
-  forceUDP: true,
+  // 为支持 UDP 的协议补上 udp: true（默认关闭）
+  forceUDP: false,
 
-  // TLS 类节点未指定指纹时补上 uTLS 指纹，"" 表示不处理
-  clientFingerprint: "chrome",
+  // TLS 类节点未指定指纹时补上的 uTLS 指纹，如 "chrome"；"" 不处理（默认）
+  clientFingerprint: "",
+
+  // 域名嗅探：应用直接用 IP 连接时从握手里还原域名再分流（默认关闭，不改订阅原有设置）
+  sniffer: false,
 
   // 自动测速分组（url-test / fallback / load-balance）统一参数
   healthCheck: {
     url: "https://www.gstatic.com/generate_204",
     interval: 300, // 秒
     tolerance: 50, // 毫秒，url-test 切换节点的容差
-    timeout: 3000, // 毫秒
   },
 
   // 最先匹配的自定义规则，优先级高于防泄露规则。
@@ -81,7 +88,7 @@ const DNS_ECS_IPS = ["8.8.8.8", "8.8.4.4"];
 // 仅用于解析 DoH 服务器自身的域名（上面都是 IP，基本用不到）
 const DNS_BOOTSTRAP = ["223.5.5.5", "119.29.29.29"];
 
-// 会绕过 Clash 的国内加密 DNS 端点（53 端口的普通 DNS 已被 TUN 劫持，不在此列）
+// 会绕过 Clash 的国内加密 DNS 端点（DoH 443 / DoT 853；53 端口的普通 DNS 已被 TUN 劫持，不在此列）
 const BYPASS_DNS_RULES = [
   "DOMAIN,dns.alidns.com,REJECT",
   "DOMAIN-SUFFIX,doh.pub,REJECT",
@@ -93,18 +100,21 @@ const BYPASS_DNS_RULES = [
   "IP-CIDR,120.53.53.53/32,REJECT,no-resolve",
   "IP-CIDR6,2400:3200::1/128,REJECT,no-resolve",
   "IP-CIDR6,2400:3200:baba::1/128,REJECT,no-resolve",
-  "DST-PORT,853,REJECT", // DoT / DoQ
 ];
 
 // STUN / TURN 常用端口：3478-3479 标准端口，5349-5350 TLS，19302-19309 Google
-const STUN_PORTS = ["3478-3479", "5349-5350", "19302-19309"];
+const STUN_PORTS = "3478-3479/5349-5350/19302-19309";
 
-// 这些域名返回真实 IP 而不是 Fake-IP（局域网、系统联网检测、NTP、STUN、游戏）
+// 这些域名返回真实 IP 而不是 Fake-IP（局域网、系统联网检测、NTP、STUN、游戏、远程控制、运营商一键登录）。
+// 会与订阅自带的列表合并，不会替换
 const FAKE_IP_FILTER = [
   "+.lan",
   "+.local",
   "+.localdomain",
   "+.home.arpa",
+  "+.internal",
+  "+.ts.net",
+  "WORKGROUP",
   "+.msftconnecttest.com",
   "+.msftncsi.com",
   "localhost.ptlogin2.qq.com",
@@ -114,6 +124,8 @@ const FAKE_IP_FILTER = [
   "time.*.gov",
   "time.*.edu.cn",
   "time.*.apple.com",
+  "time-ios.apple.com",
+  "time1.cloud.tencent.com",
   "ntp.*.com",
   "+.pool.ntp.org",
   "+.ntp.org.cn",
@@ -125,6 +137,21 @@ const FAKE_IP_FILTER = [
   "+.stun.playstation.net",
   "xbox.*.microsoft.com",
   "+.xboxlive.com",
+  "+.battlenet.com.cn",
+  "+.wotgame.cn",
+  "+.wggames.cn",
+  "+.wowsgame.cn",
+  "+.wargaming.net",
+  "+.mcdn.bilivideo.cn",
+  "+.oray.com",
+  "+.sunlogin.net",
+  "+.cmpassport.com",
+  "id6.me",
+  "open.e.189.cn",
+  "mdn.open.wo.cn",
+  "opencloud.wostore.cn",
+  "auth.wosms.cn",
+  "+.10099.com.cn",
 ];
 
 // 信息节点名称特征（同时用于 JS 和 mihomo 的 exclude-filter，只用两边都支持的语法）
@@ -173,7 +200,7 @@ function main(config, profileName) {
   if (!config || typeof config !== "object") return config;
 
   applyBase(config);
-  applySniffer(config);
+  if (CONFIG.sniffer) applySniffer(config);
   if (CONFIG.removeInfoNodes) removeInfoNodes(config);
   tuneProxies(config);
 
@@ -242,33 +269,49 @@ function applyDNS(config, target) {
   const domestic = DNS_DOMESTIC_IPS.map((ip) => doh(ip, ["DIRECT"]));
   const foreign = DNS_FOREIGN_IPS.map((ip) => doh(ip, proxy ? [proxy] : []));
   const unknown = ecs.length ? DNS_ECS_IPS.map((ip) => doh(ip, (proxy ? [proxy] : []).concat(ecs))) : foreign.slice();
-  const old = config.dns || {};
+  const old = config.dns && typeof config.dns === "object" ? config.dns : {};
 
-  // policy 按书写顺序匹配：局域网 → 国内 → 已知境外；都不命中的交给 nameserver（带 ECS）
+  // policy 按书写顺序匹配：局域网 → 国内 → 已知境外 → 订阅自带的条目；都不命中的交给 nameserver（带 ECS）
   const policy = {};
   if (CONFIG.lanDNS) policy["+.lan,+.local,+.localdomain,+.home.arpa"] = [CONFIG.lanDNS + "#DIRECT"];
   policy["geosite:cn,private"] = domestic.slice();
   policy["geosite:geolocation-!cn"] = foreign;
+  const oldPolicy = old["nameserver-policy"] && typeof old["nameserver-policy"] === "object" ? old["nameserver-policy"] : {};
+  Object.keys(oldPolicy).forEach((key) => {
+    if (!(key in policy)) policy[key] = oldPolicy[key];
+  });
 
-  // 整段替换：丢弃订阅里的 fallback / 旧 policy 等可能导致泄露的设置
-  const dns = {
+  // 在订阅原有 DNS 设置上叠加：只替换会造成泄露的上游，其余（模式、过滤列表、hosts 等）保留
+  const dns = Object.assign({}, old, {
     enable: true,
     ipv6: CONFIG.dnsIPv6,
     "prefer-h3": false,
     "respect-rules": true,
-    "cache-algorithm": "arc",
-    "enhanced-mode": "fake-ip",
-    "fake-ip-range": "198.18.0.1/16",
-    "fake-ip-filter-mode": "blacklist",
-    "fake-ip-filter": FAKE_IP_FILTER.slice(),
+    "cache-algorithm": old["cache-algorithm"] || "arc",
     "default-nameserver": DNS_BOOTSTRAP.slice(),
     "proxy-server-nameserver": domestic.slice(),
     "direct-nameserver": domestic.slice(),
     nameserver: unknown,
     "nameserver-policy": policy,
-  };
+  });
+  delete dns.fallback; // 旧式“国内 + 境外同时查”的设置，会把境外域名发给国内 DNS
+  delete dns["fallback-filter"];
+
+  // 订阅原本用 redir-host 就保持；否则用 Fake-IP（Verge TUN 的默认）
+  if (dns["enhanced-mode"] !== "redir-host") dns["enhanced-mode"] = "fake-ip";
+  if (dns["enhanced-mode"] === "fake-ip") {
+    if (!dns["fake-ip-range"]) dns["fake-ip-range"] = "198.18.0.1/16";
+    if (dns["fake-ip-filter-mode"] !== "whitelist") {
+      // 黑名单模式：与订阅的列表合并；白名单模式下列表含义相反，保持订阅原样
+      dns["fake-ip-filter-mode"] = "blacklist";
+      const merged = (Array.isArray(old["fake-ip-filter"]) ? old["fake-ip-filter"] : []).slice();
+      FAKE_IP_FILTER.forEach((d) => {
+        if (merged.indexOf(d) < 0) merged.push(d);
+      });
+      dns["fake-ip-filter"] = merged;
+    }
+  }
   if (CONFIG.dnsIPv6) dns["fake-ip-range6"] = old["fake-ip-range6"] || "2001:2::0/64";
-  if (old.listen) dns.listen = old.listen;
   config.dns = dns;
 }
 
@@ -280,7 +323,7 @@ function applySniffer(config) {
     "parse-pure-ip": true,
     "override-destination": false,
     sniff: {
-      HTTP: { ports: [80, "8080-8880"], "override-destination": true },
+      HTTP: { ports: [80, "8080-8880"] },
       TLS: { ports: [443, 8443] },
       QUIC: { ports: [443, 8443] },
     },
@@ -293,10 +336,12 @@ function leakRules(target) {
   // 这里只放防泄露所需的规则；DNS 服务器的出站已在 DNS 地址里固定，不再占用分流规则
   const rules = CONFIG.blockDNSBypass ? BYPASS_DNS_RULES.slice() : [];
 
-  // WebRTC：无论 STUN 服务器在国内还是国外，都不允许直连暴露真实 IP
-  if (CONFIG.webrtc !== "off") {
-    const out = CONFIG.webrtc === "reject" || !target ? "REJECT" : target;
-    STUN_PORTS.forEach((port) => rules.push("DST-PORT," + port + "," + out));
+  // WebRTC：直连暴露真实 IP 的只有发往国内 STUN 服务器的请求，只把这部分改走代理；
+  // 发往国外的 STUN 照原规则走，不打乱国外软件的分流
+  if (CONFIG.webrtc === "reject" || (CONFIG.webrtc === "proxy" && !target)) {
+    rules.push("DST-PORT," + STUN_PORTS + ",REJECT");
+  } else if (CONFIG.webrtc === "proxy") {
+    rules.push("AND,((DST-PORT," + STUN_PORTS + "),(OR,((GEOSITE,cn),(GEOIP,CN))))," + target);
   }
 
   if (CONFIG.blockQUIC) rules.push("AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((GEOSITE,cn)))),REJECT");
@@ -312,24 +357,19 @@ function hasNodes(config) {
   return nodeList(config).length > 0 || Object.keys(config["proxy-providers"] || {}).length > 0;
 }
 
+// 只处理订阅里直接写出的节点；proxy-providers 的节点脚本看不到，不去过滤，免得误删
 function removeInfoNodes(config) {
-  // proxy-providers 的节点在脚本里看不到，交给内核按名称过滤
-  const providers = config["proxy-providers"] || {};
-  Object.keys(providers).forEach((key) => {
-    const p = providers[key];
-    if (p && typeof p === "object" && !p["exclude-filter"]) p["exclude-filter"] = INFO_NODE_PATTERN;
-  });
-
   const re = new RegExp(INFO_NODE_PATTERN);
+  const nodes = nodeList(config);
+  const info = nodes.filter((p) => p && typeof p.name === "string" && re.test(p.name));
+  if (info.length === 0) return;
+  if (info.length * 2 > nodes.length) {
+    console.warn("[防泄露] 超过一半的节点名带有“到期/官网”等字样，判断为正常节点，未删除任何节点");
+    return;
+  }
   const removed = {};
-  config.proxies = nodeList(config).filter((p) => {
-    if (p && typeof p.name === "string" && re.test(p.name)) {
-      removed[p.name] = true;
-      return false;
-    }
-    return true;
-  });
-  if (Object.keys(removed).length === 0) return;
+  info.forEach((p) => (removed[p.name] = true));
+  config.proxies = nodes.filter((p) => !(p && removed[p.name]));
 
   (config["proxy-groups"] || []).forEach((g) => {
     if (!g || !Array.isArray(g.proxies)) return;
@@ -341,11 +381,12 @@ function removeInfoNodes(config) {
   });
 }
 
+// 默认不改节点；只有在 CONFIG 里明确打开时才补 UDP / 指纹
 function tuneProxies(config) {
-  const fp = CONFIG.clientFingerprint || config["global-client-fingerprint"];
-  // 新版 mihomo 已移除该全局字段，改为逐个节点设置
+  // 新版内核已废弃并忽略这个字段（只会在日志里报错），删掉不影响任何连接
   delete config["global-client-fingerprint"];
-
+  const fp = CONFIG.clientFingerprint;
+  if (!fp && !CONFIG.forceUDP) return;
   nodeList(config).forEach((p) => {
     if (!p || typeof p !== "object") return;
     if (CONFIG.forceUDP && UDP_TYPES.indexOf(p.type) >= 0) p.udp = true;
@@ -358,7 +399,7 @@ function tuneProxies(config) {
 // ============================== enhance 模式 ==============================
 function healthCheck(type) {
   const h = CONFIG.healthCheck;
-  const fields = { url: h.url, interval: h.interval, timeout: h.timeout, lazy: true };
+  const fields = { url: h.url, interval: h.interval, lazy: true };
   if (type === "url-test") fields.tolerance = h.tolerance;
   return fields;
 }
@@ -432,6 +473,7 @@ function buildFullRouting(config) {
   SERVICES.forEach((s) => {
     let proxies;
     if (s.direct) proxies = ["DIRECT", GROUP.main, GROUP.auto];
+    else if (s.prefer && hasProviders) proxies = [GROUP.main, GROUP.auto].concat([].concat.apply([], s.prefer.map(regionById))); // 地区组可能为空，默认走节点选择
     else if (s.prefer) proxies = [].concat.apply([], s.prefer.map(regionById)).concat([GROUP.main, GROUP.auto]);
     else proxies = [GROUP.main, GROUP.auto].concat(regionNames);
     groups.push({ name: s.name, type: "select", proxies: proxies });
