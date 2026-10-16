@@ -33,7 +33,6 @@
 
 - `tcp-concurrent`：一个域名解析出多个 IP 时同时握手，用最快的那个
 - 删除「剩余流量 / 到期时间 / 官网」这类信息节点，它们不会再混进自动测速。超过一半的节点名都带这些字样时，判断为正常节点，一个都不删
-- 统一测速地址和间隔：`https://www.gstatic.com/generate_204`，300 秒，容差 50 ms（不改测速超时）
 - 记住手动选择的节点，重启后保留 Fake-IP 映射
 - GEO 数据走国内可以直连的 jsDelivr 镜像，并自动更新
 
@@ -43,6 +42,7 @@
 - `forceUDP`：给支持 UDP 的协议补上 `udp: true`
 - `clientFingerprint`：给 TLS 类节点补 uTLS 指纹
 - `sniffer`：域名嗅探，应用直接用 IP 连接时也能按域名分流
+- `tuneHealthCheck`：统一订阅里自动测速分组的测速地址和间隔（`https://www.gstatic.com/generate_204`、300 秒、容差 50 ms）。它会改变「自动选择」挑中的节点
 - **full 模式**：地区自动测速分组，AI / GitHub / YouTube / Google / Telegram / Netflix / 微软 / 苹果 各自分流，广告拦截，规则集使用 MetaCubeX 的 `.mrs` 格式。它会替换订阅的分组和规则
 
 ---
@@ -142,7 +142,8 @@
 | `forceUDP` | `false` | 为 ss / ssr / vmess / vless / trojan / socks5 / anytls 开启 UDP |
 | `clientFingerprint` | `""` | TLS 类节点没有指纹时补上的 uTLS 指纹，比如 `"chrome"`；`""` 表示不处理 |
 | `sniffer` | `false` | 开启域名嗅探（只用嗅探到的域名匹配规则，不改写连接目标） |
-| `healthCheck` | 见文件 | 自动测速分组的测速地址、间隔和容差 |
+| `tuneHealthCheck` | `false` | 把订阅里自动测速分组的测速地址、间隔统一成 `healthCheck` 的值。会改变「自动选择」挑中的节点，X 这类对节点 IP 敏感的网站可能因此加载失败 |
+| `healthCheck` | 见文件 | 测速地址、间隔和容差。`tuneHealthCheck` 打开时用于订阅的分组；full 模式生成的分组始终使用 |
 | `extraRules` | `[]` | 优先级最高的自定义规则，排在防泄露规则前面 |
 | `adBlock` | `true` | full 模式下的广告拦截分组（可以在面板里切到 DIRECT） |
 | `ruleBase` / `geoBase` | jsDelivr 镜像 | 规则集和 GEO 数据的下载地址 |

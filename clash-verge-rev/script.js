@@ -59,7 +59,11 @@ const CONFIG = {
   // 域名嗅探：应用直接用 IP 连接时从握手里还原域名再分流（默认关闭，不改订阅原有设置）
   sniffer: false,
 
-  // 自动测速分组（url-test / fallback / load-balance）统一参数
+  // 把订阅里自动测速分组（url-test / fallback / load-balance）的测速地址、间隔统一成下面的值。
+  // 默认关闭：它会改变「自动选择」挑中的节点，而 X 等网站对节点 IP 很挑剔
+  tuneHealthCheck: false,
+
+  // 测速参数：tuneHealthCheck 打开时用于订阅的分组；full 模式生成的分组始终使用
   healthCheck: {
     url: "https://www.gstatic.com/generate_204",
     interval: 300, // 秒
@@ -209,7 +213,7 @@ function main(config, profileName) {
     target = buildFullRouting(config);
   } else {
     if (CONFIG.mode === "full") console.warn("[防泄露] 订阅里没有节点，full 模式已退回 enhance 模式");
-    tuneGroups(config);
+    if (CONFIG.tuneHealthCheck) tuneGroups(config);
     target = pickMainGroup(config);
   }
   if (!target) console.warn("[防泄露] 找不到代理分组：境外 DNS 将按规则出站" + (CONFIG.webrtc === "off" ? "" : "，WebRTC 流量改为拦截"));

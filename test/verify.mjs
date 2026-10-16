@@ -130,14 +130,20 @@ test("默认不改节点：除信息节点外，节点和全局指纹字段保�
   const groups = Object.fromEntries(config["proxy-groups"].map((g) => [g.name, g]));
   assert.deepEqual(groups["📢 订阅信息"].proxies, ["REJECT"]);
   assert.ok(!groups["♻️ 自动选择"].proxies.includes("剩余流量：120.5 GB"));
-  assert.equal(groups["♻️ 自动选择"].url, "https://www.gstatic.com/generate_204");
-  assert.equal(groups["♻️ 自动选择"].interval, 300);
-  assert.equal(groups["♻️ 自动选择"].timeout, undefined); // 不改测速超时
+  // 默认不改测速参数，「自动选择」挑节点的方式和订阅原来一样
+  const original = sub["proxy-groups"].find((g) => g.name === "♻️ 自动选择");
+  assert.equal(groups["♻️ 自动选择"].url, original.url);
+  assert.equal(groups["♻️ 自动选择"].interval, original.interval);
   checkReferences(config);
 });
 
 test("可选优化：手动打开后补 UDP、TLS 指纹、嗅探、QUIC 拦截", () => {
-  const { config } = runScript(withTun(fixture("subscription.yaml")), { forceUDP: true, clientFingerprint: "chrome", sniffer: true, blockQUIC: true });
+  const { config } = runScript(withTun(fixture("subscription.yaml")), { forceUDP: true, clientFingerprint: "chrome", sniffer: true, blockQUIC: true, tuneHealthCheck: true });
+  const auto = config["proxy-groups"].find((g) => g.name === "♻️ 自动选择");
+  assert.equal(auto.url, "https://www.gstatic.com/generate_204");
+  assert.equal(auto.interval, 300);
+  assert.equal(auto.tolerance, 50);
+  assert.equal(auto.timeout, undefined); // 不改测速超时
   const byName = Object.fromEntries(config.proxies.map((p) => [p.name, p]));
   assert.equal(byName["🇷🇺 RUS 01"].udp, true);
   assert.equal(byName["🇭🇰 HK02 IPLC"]["client-fingerprint"], "chrome");
@@ -297,7 +303,7 @@ test("proxy-providers 订阅：不过滤代理集合节点；full 下 AI 服务�
   const enhance = runScript(withTun(fixture("providers.yaml"))).config;
   assert.ok(enhance.rules.includes(leakHead("Proxy").at(-1)));
   assert.ok(enhance.dns.nameserver[0].includes("#Proxy&"));
-  assert.equal(enhance["proxy-providers"].airport["health-check"].url, "https://www.gstatic.com/generate_204");
+  assert.equal(enhance["proxy-providers"].airport["health-check"].url, "http://cp.cloudflare.com"); // 默认不改
   assert.equal(enhance["proxy-providers"].airport["exclude-filter"], undefined);
   checkReferences(enhance);
   outputs["providers-enhance"] = enhance;
