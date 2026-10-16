@@ -5,24 +5,21 @@
  * 内核：mihomo ≥ 1.19（Clash Verge Rev 自带）
  * 用法：订阅 → 全局扩展脚本 → 编辑文件 → 全选粘贴本文件 → 保存
  *       只想对某个订阅生效：右键该订阅 → 扩展脚本
- * 说明：可单独使用，也可与 merge.yaml 同时启用（两者的 DNS 参数一致，脚本额外把境外 DNS 固定到代理组）。
+ * 说明：可单独使用，也可与 merge.yaml 同时启用（两者的 DNS 参数一致）。
  *       WebRTC 防护依赖 TUN（虚拟网卡）模式，详见 README。
  * 原则：默认只做防 DNS / WebRTC 泄露，不改节点、不拦正常流量、不覆盖订阅原有的 DNS 兼容设置；
- *       其余优化默认关闭，需要时在下面手动打开。
+ *       不写死任何分组名，出口一律跟随订阅自己的分流规则。其余优化默认关闭，需要时在下面手动打开。
  */
 
 // ============================== 可调参数 ==============================
 const CONFIG = {
-  // "enhance"：保留订阅自带的分组与规则，只叠加防泄露规则和优化（默认）
-  // "full"   ：订阅只提供节点，分组和分流规则全部由本脚本生成（规则集来自 MetaCubeX）
-  mode: "enhance",
-
-  // 代理出口所用的分组名；留空自动识别订阅的主选择组（如“🚀 节点选择”）
-  mainGroup: "",
+  // 境外 DNS 和 WebRTC 用哪个分组出站。留空（默认）= 订阅兜底规则（MATCH）指向的分组，
+  // 每次从订阅里现读，不写死分组名；订阅改了分组名也会自动跟上。只有想手动指定时才填
+  proxyGroup: "",
 
   // WebRTC / STUN 流量：
-  //   "proxy"  发往国内的 STUN 请求改走代理；订阅的兜底规则是直连时，其余 STUN 也改走代理；
-  //            其他的照你原来的规则走（推荐）。订阅里明确写了直连的国外服务器仍会直连
+  //   "proxy"  发往国内的 STUN 请求改走代理分组；其他的照你原来的规则走（推荐）。
+  //            兜底规则本身是直连时没有代理出口，这部分 STUN 改为拦截
   //   "reject" 拦截所有 STUN 请求，最彻底，但网页音视频通话可能无法建立
   //   "off"    不处理
   webrtc: "proxy",
@@ -38,7 +35,7 @@ const CONFIG = {
   // DNS 是否返回 IPv6 地址。关闭可避免 IPv6 流量绕开代理
   dnsIPv6: false,
 
-  // 国内域名以外的域名用 Google DoH（经代理）解析时附带的 ECS 网段。
+  // 国内域名以外的域名用 Google DoH（按订阅的分流规则经代理发出）解析时附带的 ECS 网段。
   // 填一个通用的国内网段（不是你的 IP），解析结果就和国内 DNS 一致，GEOIP 分流不会误判
   // （比如 Windows 更新、Steam 下载在国内有节点的服务照样直连）；查询仍经代理发出，运营商看不到。
   // 填 "" 关闭，改用 Cloudflare + Google 且不带 ECS（部分本该直连的下载会改走代理）
@@ -68,7 +65,7 @@ const CONFIG = {
   // 默认关闭：它会改变「自动选择」挑中的节点，而 X 等网站对节点 IP 很挑剔
   tuneHealthCheck: false,
 
-  // 测速参数：tuneHealthCheck 打开时用于订阅的分组；full 模式生成的分组始终使用
+  // tuneHealthCheck 打开时使用的测速参数
   healthCheck: {
     url: "https://www.gstatic.com/generate_204",
     interval: 300, // 秒
@@ -79,11 +76,7 @@ const CONFIG = {
   // 例：让游戏主机直连 ["SRC-IP-CIDR,192.168.1.50/32,DIRECT"]
   extraRules: [],
 
-  // ---- 以下仅 full 模式使用 ----
-  adBlock: true, // 广告拦截分组（可在面板中切换为 DIRECT）
-
-  // 规则集与 GEO 数据下载地址（国内可直连的 jsDelivr 镜像）
-  ruleBase: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo",
+  // GEO 数据下载地址（国内可直连的 jsDelivr 镜像）
   geoBase: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release",
 };
 
@@ -91,7 +84,7 @@ const CONFIG = {
 // 国内 DNS：解析国内域名、节点域名和直连流量，固定直连。DoH 为主，普通 UDP 作后备（有的网络会拦 DoH）
 const DNS_DOMESTIC_IPS = ["223.5.5.5", "1.12.12.12"];
 const DNS_DOMESTIC_UDP = ["223.5.5.5", "119.29.29.29"];
-// 境外 DoH（dnsECS 关闭时用），固定走代理组，运营商看不到查询内容
+// 境外 DoH（dnsECS 关闭时用）：按订阅的分流规则经代理发出，运营商看不到查询内容
 const DNS_FOREIGN_IPS = ["1.1.1.1", "8.8.8.8"];
 // 带 ECS 的境外 DoH：Google DNS 会把 ECS 转给权威服务器（Cloudflare 不会），保证分流判断准确
 const DNS_ECS_IPS = ["8.8.8.8", "8.8.4.4"];
@@ -178,40 +171,6 @@ const INFO_NODE_PATTERN =
 // 支持 UDP、但需要显式开启 udp 的协议
 const UDP_TYPES = ["ss", "ssr", "vmess", "vless", "trojan", "socks5", "anytls"];
 
-// 地区匹配。缩写两侧不能紧挨字母，避免 “RUS” 被当成 “US”
-const abbr = (codes) => "(^|[^A-Za-z])(" + codes + ")([^A-Za-z]|$)";
-const REGIONS = [
-  { id: "HK", name: "🇭🇰 香港节点", pattern: "港|🇭🇰|" + abbr("HK|HKG") + "|[Hh]ong ?[Kk]ong" },
-  { id: "TW", name: "🇹🇼 台湾节点", pattern: "台湾|台灣|台北|新北|彰化|🇹🇼|" + abbr("TW|TWN") + "|[Tt]aiwan" },
-  { id: "JP", name: "🇯🇵 日本节点", pattern: "日本|东京|東京|大阪|埼玉|🇯🇵|" + abbr("JP|JPN") + "|[Jj]apan|[Tt]okyo|[Oo]saka" },
-  { id: "SG", name: "🇸🇬 新加坡节点", pattern: "新加坡|狮城|獅城|🇸🇬|" + abbr("SG|SGP") + "|[Ss]ingapore" },
-  {
-    id: "US",
-    name: "🇺🇸 美国节点",
-    pattern: "美国|美國|洛杉矶|圣何塞|硅谷|西雅图|芝加哥|纽约|达拉斯|🇺🇸|" + abbr("US|USA") + "|[Uu]nited ?[Ss]tates|[Aa]merica",
-  },
-];
-
-// full 模式的服务分流（顺序即匹配顺序：GitHub 必须在微软之前，YouTube 在 Google 之前）
-const SERVICES = [
-  { name: "🤖 AI 服务", geosite: ["category-ai-!cn"], prefer: ["US", "JP", "SG", "TW"] },
-  { name: "🐙 GitHub", geosite: ["github"] },
-  { name: "📺 YouTube", geosite: ["youtube"] },
-  { name: "🔍 Google", geosite: ["google"], geoip: ["google"] },
-  { name: "✈️ Telegram", geosite: ["telegram"], geoip: ["telegram"] },
-  { name: "🎬 Netflix", geosite: ["netflix"], geoip: ["netflix"] },
-  { name: "Ⓜ️ 微软服务", geosite: ["microsoft"], direct: true },
-  { name: "🍎 苹果服务", geosite: ["apple"], direct: true },
-];
-
-const GROUP = {
-  main: "🚀 节点选择",
-  auto: "♻️ 自动选择",
-  direct: "🎯 全球直连",
-  ads: "🛑 广告拦截",
-  final: "🐟 漏网之鱼",
-};
-
 // ============================== 入口 ==============================
 function main(config, profileName) {
   if (!config || typeof config !== "object") return config;
@@ -221,22 +180,15 @@ function main(config, profileName) {
   if (CONFIG.removeInfoNodes) removeInfoNodes(config);
   tuneProxies(config);
 
-  let target;
-  if (CONFIG.mode === "full" && hasNodes(config)) {
-    target = buildFullRouting(config);
-  } else {
-    if (CONFIG.mode === "full") console.warn("[防泄露] 订阅里没有节点，full 模式已退回 enhance 模式");
-    if (CONFIG.tuneHealthCheck) tuneGroups(config);
-    target = pickMainGroup(config);
-  }
-  if (!target) console.warn("[防泄露] 找不到代理分组：境外 DNS 将按规则出站" + (CONFIG.webrtc === "off" ? "" : "，WebRTC 流量改为拦截"));
+  if (CONFIG.tuneHealthCheck) tuneGroups(config);
 
+  const target = proxyTarget(config);
   applyDNS(config, target);
 
   const head = CONFIG.extraRules.concat(headRules(target));
   const tail = tailRules();
   const rules = (Array.isArray(config.rules) ? config.rules : []).filter((r) => head.indexOf(r) < 0 && tail.indexOf(r) < 0);
-  config.rules = head.concat(guardDirectMatch(config, rules, target), tail);
+  config.rules = head.concat(guardDirectMatch(rules, target), tail);
 
   checkTun(config.tun);
   return config;
@@ -277,13 +229,11 @@ function applyBase(config) {
 
 // ============================== DNS ==============================
 function applyDNS(config, target) {
-  // “#出站&参数” 让每个 DNS 服务器固定出站，不经过分流规则，也就不需要为它们加规则、改动你的分流。
-  // 分组名含 & % # 时 URL 无法表达，退回 respect-rules（按规则出站）
-  const proxy = target && !/[&%#]/.test(target) ? target : "";
-  if (target && !proxy) console.warn("[防泄露] 分组名 “" + target + "” 含 & % #，境外 DNS 改为按规则出站");
-  const via = proxy ? [proxy] : [];
+  // 国内 DNS 用 #DIRECT 固定直连；境外 DNS 用 “#分组” 固定走代理分组（分组名来自订阅的兜底规则，不写死），
+  // 不受其他分流规则影响。没有代理分组、或分组名含 & % #（URL 无法表达）时，退回 respect-rules 按规则出站
+  const via = target && !/[&%#]/.test(target) ? [target] : [];
+  if (target && !via.length) console.warn("[防泄露] 分组名 “" + target + "” 含 & % #，境外 DNS 改为按分流规则出站");
   const doh = (ip, params) => "https://" + ip + "/dns-query" + (params.length ? "#" + params.join("&") : "");
-
   const domestic = DNS_DOMESTIC_IPS.map((ip) => doh(ip, ["DIRECT"])).concat(DNS_DOMESTIC_UDP.map((ip) => ip + "#DIRECT"));
   const foreign = CONFIG.dnsECS
     ? DNS_ECS_IPS.map((ip) => doh(ip, via.concat(["ecs=" + CONFIG.dnsECS, "ecs-override=true"])))
@@ -372,14 +322,16 @@ function applySniffer(config) {
 // ============================== 防泄露规则 ==============================
 // 放在最前面的防泄露规则
 function headRules(target) {
-  // DNS 服务器的出站已在 DNS 地址里固定，不再占用分流规则
+  // 境外 DNS 的出站已在 DNS 地址里固定，不再占用分流规则
   const rules = CONFIG.blockDNSBypass ? BYPASS_DNS_RULES.slice() : [];
 
   // WebRTC：发往国内 STUN 服务器的请求会被订阅的 GEOIP,CN 等规则直连，暴露真实 IP，只把这部分改走代理。
   // no-resolve：不为判断去解析域名（国内域名由 GEOSITE,cn 识别），不拖慢其他软件的连接
   const cnStun = "AND,((DST-PORT," + STUN_PORTS + "),(OR,((GEOSITE,cn),(GEOIP,CN,no-resolve))))";
-  if (CONFIG.webrtc === "reject" || (CONFIG.webrtc === "proxy" && !target)) {
+  if (CONFIG.webrtc === "reject") {
     rules.push("DST-PORT," + STUN_PORTS + ",REJECT");
+  } else if (CONFIG.webrtc === "proxy" && !target) {
+    rules.push(cnStun + ",REJECT"); // 没有代理出口可用：发往国内的 STUN 直接拦截
   } else if (CONFIG.webrtc === "proxy") {
     rules.push(cnStun + "," + target);
     // 代理组的节点不支持 UDP 时内核会跳过上一条继续往下匹配，最后直连；这里兜住
@@ -398,33 +350,50 @@ function tailRules() {
   return rules;
 }
 
-// 订阅的兜底规则（MATCH）是直连时（白名单模式），网页可以挑一个国外 STUN 服务器直连拿到真实 IP，
-// 在 MATCH 前把这部分 STUN 改走代理；局域网的不动
-function guardDirectMatch(config, rules, target) {
-  if (CONFIG.webrtc !== "proxy" || !target) return rules;
-  const index = rules.findIndex((r) => /^MATCH,/i.test(r));
-  if (index < 0 || !isDirectPolicy(config, rules[index].split(",")[1].trim())) return rules;
-  const stun = "AND,((DST-PORT," + STUN_PORTS + "),(NOT,((GEOIP,LAN,no-resolve))))";
-  if (rules.indexOf(stun + "," + target) >= 0) return rules;
-  return rules.slice(0, index).concat([stun + "," + target, stun + ",REJECT"], rules.slice(index));
-}
-
 const BUILTIN_NONPROXY = ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"];
 
-// DIRECT 本身，或第一个选项是 DIRECT 的分组
-function isDirectPolicy(config, name) {
-  if (name === "DIRECT") return true;
-  const group = (config["proxy-groups"] || []).find((g) => g && g.name === name);
-  return !!group && Array.isArray(group.proxies) && group.proxies[0] === "DIRECT";
+// 代理出口：不写死分组名，取订阅兜底规则（MATCH）指向的分组——它就是订阅给“其余流量”定的出口。
+// 兜底是直连（或第一个选项是直连的分组）时没有代理出口，返回 null
+function proxyTarget(config) {
+  const groups = (config["proxy-groups"] || []).filter((g) => g && typeof g.name === "string");
+  if (CONFIG.proxyGroup) {
+    if (groups.some((g) => g.name === CONFIG.proxyGroup)) return CONFIG.proxyGroup;
+    console.warn("[防泄露] 未找到分组 “" + CONFIG.proxyGroup + "”，改为跟随订阅的兜底规则");
+  }
+  const name = matchTarget(config.rules);
+  if (name && !isDirectPolicy(groups, name)) return name;
+  console.warn(
+    "[防泄露] 订阅的兜底规则不是代理分组：境外 DNS 改为按分流规则出站，发往国内和未收录服务器的 STUN 改为拦截"
+  );
+  return null;
+}
+
+function matchTarget(rules) {
+  const match = (Array.isArray(rules) ? rules : []).find((r) => /^MATCH,/i.test(r));
+  return match ? match.split(",")[1].trim() : "";
+}
+
+// DIRECT 等内置策略本身，或第一个选项是它们的分组
+function isDirectPolicy(groups, name) {
+  if (BUILTIN_NONPROXY.indexOf(name) >= 0) return true;
+  const group = groups.find((g) => g.name === name);
+  return !!group && Array.isArray(group.proxies) && BUILTIN_NONPROXY.indexOf(group.proxies[0]) >= 0;
+}
+
+// 兜底规则是直连时（白名单式订阅），网页可以挑一个未收录的国外 STUN 服务器直连拿到真实 IP。
+// 这种订阅没有代理出口可用，在兜底规则前把这部分 STUN 拦截；局域网的不动
+function guardDirectMatch(rules, target) {
+  if (CONFIG.webrtc !== "proxy" || target) return rules;
+  const index = rules.findIndex((r) => /^MATCH,/i.test(r));
+  if (index < 0) return rules;
+  const guard = "AND,((DST-PORT," + STUN_PORTS + "),(NOT,((GEOIP,LAN,no-resolve)))),REJECT";
+  if (rules.indexOf(guard) >= 0) return rules;
+  return rules.slice(0, index).concat([guard], rules.slice(index));
 }
 
 // ============================== 节点处理 ==============================
 function nodeList(config) {
   return Array.isArray(config.proxies) ? config.proxies : [];
-}
-
-function hasNodes(config) {
-  return nodeList(config).length > 0 || Object.keys(config["proxy-providers"] || {}).length > 0;
 }
 
 // 只处理订阅里直接写出的节点；proxy-providers 的节点脚本看不到，不去过滤，免得误删
@@ -466,7 +435,7 @@ function tuneProxies(config) {
   });
 }
 
-// ============================== enhance 模式 ==============================
+// ============================== 测速参数（可选） ==============================
 function healthCheck(type) {
   const h = CONFIG.healthCheck;
   const fields = { url: h.url, interval: h.interval, lazy: true };
@@ -489,110 +458,4 @@ function tuneGroups(config) {
       hc.interval = CONFIG.healthCheck.interval;
     }
   });
-}
-
-function pickMainGroup(config) {
-  const groups = (config["proxy-groups"] || []).filter((g) => g && typeof g.name === "string");
-  const byName = (name) => groups.find((g) => g.name === name);
-  // 第一个选项是 DIRECT / REJECT 的分组不能当出口，否则境外 DNS 会直连（国内连不上 Google / Cloudflare）
-  const usable = (g) => !(Array.isArray(g.proxies) && g.proxies.length && BUILTIN_NONPROXY.indexOf(g.proxies[0]) >= 0);
-  const fallback = (name, why) => {
-    console.warn("[防泄露] " + why + "，境外 DNS 和 WebRTC 改用「" + name + "」出站；不对的话请在 CONFIG.mainGroup 里指定");
-    return name;
-  };
-
-  if (CONFIG.mainGroup) {
-    if (byName(CONFIG.mainGroup)) return CONFIG.mainGroup;
-    console.warn("[防泄露] 未找到分组 “" + CONFIG.mainGroup + "”，改为自动识别");
-  }
-  const named = groups.find((g) => g.type === "select" && usable(g) && /节点选择|代理选择|选择节点|选择代理|手动选择|[Pp]roxy|PROXY/.test(g.name));
-  if (named) return named.name;
-
-  // 订阅兜底规则（MATCH）指向的分组，通常就是主出口
-  const match = (Array.isArray(config.rules) ? config.rules : []).find((r) => /^MATCH,/i.test(r));
-  const matchGroup = match && byName(match.split(",")[1].trim());
-  if (matchGroup && usable(matchGroup)) return fallback(matchGroup.name, "没找到名字带「节点选择 / Proxy」的分组");
-
-  const other = groups.find((g) => g.type === "select" && usable(g)) || groups.find(usable);
-  if (other) return fallback(other.name, "没找到名字带「节点选择 / Proxy」的分组");
-
-  const first = nodeList(config).find((p) => p && p.name);
-  return first ? first.name : null;
-}
-
-// ============================== full 模式 ==============================
-function buildFullRouting(config) {
-  const providers = {};
-  const ruleSet = (kind, name) => {
-    const key = kind + "-" + name.replace(/!/g, "not-");
-    providers[key] = {
-      type: "http",
-      behavior: kind === "geosite" ? "domain" : "ipcidr",
-      format: "mrs",
-      url: CONFIG.ruleBase + "/" + kind + "/" + name + ".mrs",
-      path: "./ruleset/" + key + ".mrs",
-      interval: 86400,
-    };
-    return key;
-  };
-
-  const names = nodeList(config).map((p) => p && p.name).filter(Boolean);
-  const hasProviders = Object.keys(config["proxy-providers"] || {}).length > 0;
-  // 只建有节点的地区组；有 proxy-providers 时无法预知节点，全部建出（空组回落为 REJECT，不会直连）
-  const regions = REGIONS.filter((r) => {
-    const re = new RegExp(r.pattern);
-    return hasProviders || names.some((n) => re.test(n));
-  });
-  const regionNames = regions.map((r) => r.name);
-  const regionById = (id) => regions.filter((r) => r.id === id).map((r) => r.name);
-
-  const groups = [
-    { name: GROUP.main, type: "select", proxies: [GROUP.auto].concat(regionNames), "include-all": true, "exclude-filter": INFO_NODE_PATTERN },
-    Object.assign({ name: GROUP.auto, type: "url-test", "include-all": true, "exclude-filter": INFO_NODE_PATTERN }, healthCheck("url-test")),
-  ];
-
-  SERVICES.forEach((s) => {
-    let proxies;
-    if (s.direct) proxies = ["DIRECT", GROUP.main, GROUP.auto];
-    else if (s.prefer && hasProviders) proxies = [GROUP.main, GROUP.auto].concat([].concat.apply([], s.prefer.map(regionById))); // 地区组可能为空，默认走节点选择
-    else if (s.prefer) proxies = [].concat.apply([], s.prefer.map(regionById)).concat([GROUP.main, GROUP.auto]);
-    else proxies = [GROUP.main, GROUP.auto].concat(regionNames);
-    groups.push({ name: s.name, type: "select", proxies: proxies });
-  });
-
-  groups.push({ name: GROUP.direct, type: "select", proxies: ["DIRECT", GROUP.main] });
-  if (CONFIG.adBlock) groups.push({ name: GROUP.ads, type: "select", proxies: ["REJECT", "DIRECT"] });
-  groups.push({ name: GROUP.final, type: "select", proxies: [GROUP.main, GROUP.auto, "DIRECT"] });
-
-  regions.forEach((r) => {
-    groups.push(
-      Object.assign(
-        {
-          name: r.name,
-          type: "url-test",
-          "include-all": true,
-          filter: r.pattern,
-          "exclude-filter": INFO_NODE_PATTERN,
-          "empty-fallback": "REJECT",
-        },
-        healthCheck("url-test")
-      )
-    );
-  });
-
-  const rules = ["RULE-SET," + ruleSet("geosite", "private") + ",DIRECT"];
-  if (CONFIG.adBlock) rules.push("RULE-SET," + ruleSet("geosite", "category-ads-all") + "," + GROUP.ads);
-  SERVICES.forEach((s) => s.geosite.forEach((n) => rules.push("RULE-SET," + ruleSet("geosite", n) + "," + s.name)));
-  rules.push("RULE-SET," + ruleSet("geosite", "geolocation-!cn") + "," + GROUP.main);
-  rules.push("RULE-SET," + ruleSet("geosite", "cn") + "," + GROUP.direct);
-  rules.push("RULE-SET," + ruleSet("geoip", "private") + ",DIRECT,no-resolve");
-  SERVICES.forEach((s) => (s.geoip || []).forEach((n) => rules.push("RULE-SET," + ruleSet("geoip", n) + "," + s.name + ",no-resolve")));
-  // 未命中任何域名规则的域名会在这里本地解析；境外域名走境外 DoH（经代理），不会泄露给运营商
-  rules.push("RULE-SET," + ruleSet("geoip", "cn") + "," + GROUP.direct);
-  rules.push("MATCH," + GROUP.final);
-
-  config["proxy-groups"] = groups;
-  config["rule-providers"] = providers;
-  config.rules = rules;
-  return GROUP.main;
 }

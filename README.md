@@ -4,7 +4,7 @@
 
 | 文件 | 放在哪 | 作用 |
 | --- | --- | --- |
-| [`clash-verge-rev/script.js`](clash-verge-rev/script.js) | 订阅 → **全局扩展脚本** | 全部功能：防 DNS / WebRTC 泄露，以及可选的优化和完整分流 |
+| [`clash-verge-rev/script.js`](clash-verge-rev/script.js) | 订阅 → **全局扩展脚本** | 全部功能：防 DNS / WebRTC 泄露，以及可选的优化 |
 | [`clash-verge-rev/merge.yaml`](clash-verge-rev/merge.yaml) | 订阅 → **全局扩展覆写配置** | 只有 DNS 和性能参数（不含规则） |
 
 **只装 `script.js` 就够了，推荐只用它。** 脚本会在订阅原有的 DNS 设置上叠加；Merge 只能整体替换，还没办法把规则插到最前面，所以 WebRTC 防护只能靠脚本。
@@ -20,10 +20,10 @@
 | 泄露 | 怎么发生的 | 本方案怎么处理 |
 | --- | --- | --- |
 | **DNS 泄露** | 订阅常用国内 DNS 解析所有域名，或者带着 `fallback`，运营商能看到你查了哪些境外网站 | 只替换 DNS 上游并清掉 `fallback`：国内域名交给国内 DNS（DoH 为主、UDP 后备，固定直连），其余域名交给 Google DoH（**固定走代理组**）。Windows 联网检测、时间同步这类系统域名交给国内 DNS，节点不可用时也不会出现「无 Internet」。订阅里针对具体域名写的解析条目（机场面板、公司内网、路由器）优先生效，Fake-IP 过滤列表合并保留 |
-| **DNS 跟着分流规则直连** | 只靠 `respect-rules` 时，如果「漏网之鱼」这类分组选了 DIRECT，境外 DNS 也会跟着直连 | 脚本在每个 DNS 地址上直接绑定出站（`#🚀 节点选择`、`#DIRECT`），不经过分流规则。也因此不需要再为 DNS 服务器加规则，你的分流规则保持原样 |
+| **DNS 跟着分流规则直连** | 只靠 `respect-rules` 时，如果订阅里有把 `8.8.8.8` 设成直连的规则，境外 DNS 也会跟着直连 | 脚本把境外 DNS 固定走订阅兜底规则（MATCH）指向的分组，国内 DNS 固定直连，不受其他分流规则影响。分组名每次从订阅里现读，不写死，订阅改名也会自动跟上；也因此不需要为 DNS 服务器加规则，你的分流规则保持原样 |
 | **规则匹配引起的解析** | `GEOIP` 这类规则要先把域名解析成 IP 才能匹配 | 国内域名以外的解析都经代理发出，并附带一个通用的国内 ECS 网段（不是你的 IP）。解析结果和国内 DNS 一致，`GEOIP,CN` 的判断和你订阅原来一样：未收录的国内网站、Windows 更新、Steam 下载这类在国内有节点的服务照样直连 |
 | **浏览器 / 系统自带的国内加密 DNS** | 浏览器「安全 DNS」或系统 DoH 设成阿里、腾讯、360 时会绕过 Clash | 只拦截这几家的 DoH / DoT 服务器，它们会自动回落到普通 DNS，由 TUN 劫持交给 Clash。内核自己的 DNS 查询不受影响 |
-| **WebRTC 泄露** | 浏览器用 UDP 去问 STUN 服务器你的公网 IP。系统代理模式下 UDP 根本不经过 Clash；就算开了 TUN，STUN 服务器在国内时也会被 `GEOIP,CN` 规则放行直连 | 要求开启 TUN；**发往国内的** STUN/TURN 请求（3478-3479、5349-5350、19302-19309 端口）改走代理；订阅的兜底规则是直连时（白名单式订阅），其余 STUN 也改走代理。其他的照你原来的规则走，国外通话软件的分流不受影响。订阅里明确写了直连的国外服务器（比如「微软服务」默认直连）仍会直连，要彻底防护就用 `webrtc: "reject"` |
+| **WebRTC 泄露** | 浏览器用 UDP 去问 STUN 服务器你的公网 IP。系统代理模式下 UDP 根本不经过 Clash；就算开了 TUN，STUN 服务器在国内时也会被 `GEOIP,CN` 规则放行直连 | 要求开启 TUN；**发往国内的** STUN/TURN 请求（3478-3479、5349-5350、19302-19309 端口）改走订阅兜底规则指向的代理分组；其他的照你原来的规则走，国外通话软件的分流不受影响。订阅的兜底规则本身是直连时（白名单式订阅）没有代理出口，发往国内和未收录服务器的 STUN 改为拦截。订阅里明确写了直连的国外服务器（比如「微软服务」默认直连）仍会直连，要彻底防护就用 `webrtc: "reject"` |
 | **节点不支持 UDP 时悄悄直连** | 很多机场节点没开 UDP。规则选中这样的节点时，内核会跳过它继续往下匹配，最后**直接直连**，STUN 和 QUIC 都会暴露真实 IP | 这种情况下的 STUN 和 QUIC（UDP 443）改为拦截：网页拿不到真实 IP，浏览器会自动改用 TCP 走代理。实测只用订阅时这三类请求都直连，加上脚本后都被拦截 |
 | **Windows 多网卡 / IPv6 DNS** | Windows 会同时向每块网卡的 DNS（包括路由器和 IPv6 DNS）发查询，这些查询**不进 TUN**，配置文件管不到 | 开启 TUN 的「严格路由」：它会挡住发往其他网卡的 DNS，并在 TUN 不接管 IPv6 时断开 IPv6，软件自动改用 IPv4。脚本检测到没开会在日志里提醒 |
 | **IPv6 泄露** | 代理只处理 IPv4 时，IPv6 流量可能直接出去 | DNS 不返回 IPv6 地址，配合严格路由；Verge 的 IPv6 保持关闭（见第三节） |
@@ -46,7 +46,6 @@
 - `clientFingerprint`：给 TLS 类节点补 uTLS 指纹
 - `sniffer`：域名嗅探，应用直接用 IP 连接时也能按域名分流
 - `tuneHealthCheck`：统一订阅里自动测速分组的测速地址和间隔（`https://www.gstatic.com/generate_204`、300 秒、容差 50 ms）。它会改变「自动选择」挑中的节点
-- **full 模式**：地区自动测速分组，AI / GitHub / YouTube / Google / Telegram / Netflix / 微软 / 苹果 各自分流，广告拦截，规则集使用 MetaCubeX 的 `.mrs` 格式。它会替换订阅的分组和规则
 
 ---
 
@@ -125,7 +124,7 @@
    - 命中 `DOMAIN,dns.alidns.com` / `IP-CIDR,223.5.5.5` 这类 `REJECT`：是加密 DNS 拦截规则，把 `blockDNSBypass` 设为 `false`。
    - 命中 `AND,((DST-PORT,3478...`：是 WebRTC 规则，把 `webrtc` 设为 `"off"`，或用 `extraRules` 给这个软件放行。
    - 命中 `AND,((NETWORK,UDP),(DST-PORT,443)),REJECT`：当前节点不支持 UDP。浏览器会自动改走 TCP；别的软件需要 UDP 的话，换一个支持 UDP 的节点。
-   - 打开很慢、或者境外网站全都打不开：境外域名的解析要经过「节点选择」。节点挂了、「节点选择」选成了 DIRECT、或者 Verge 切到了直连模式，解析都会失败。换一个能用的节点即可。
+   - 打开很慢、或者境外网站全都打不开：境外域名的解析要经过订阅兜底规则指向的分组。节点挂了、这个分组选成了 DIRECT、或者 Verge 切到了直连模式，解析都会失败。换一个能用的节点即可。
 3. 如果你打开过默认关闭的优化，逐个关回去排查。
 4. 还是不行，把软件名和「连接」页 / 「日志」页里相关的几行发给我。
 
@@ -135,9 +134,8 @@
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `mode` | `"enhance"` | `enhance`：保留订阅自带的分组和规则，只叠加防泄露规则和优化；`full`：订阅只负责提供节点，分组和分流由脚本生成 |
-| `mainGroup` | `""` | 境外 DNS 和 WebRTC 用哪个分组出站。留空会自动识别（优先找名字里带「节点选择 / Proxy」的 select 分组） |
-| `webrtc` | `"proxy"` | `proxy`：发往国内的 STUN 请求改走代理（订阅兜底规则是直连时，其余 STUN 也改走代理），其他照原规则走；节点不支持 UDP 时拦截。`reject`：拦截所有 STUN 请求（最彻底，网页音视频通话可能失败）。`off`：不处理 |
+| `proxyGroup` | `""` | 境外 DNS 和 WebRTC 用哪个分组出站。留空 = 订阅兜底规则（MATCH）指向的分组，每次从订阅里现读、不写死；只有想手动指定时才填 |
+| `webrtc` | `"proxy"` | `proxy`：发往国内的 STUN 请求改走订阅兜底规则指向的代理分组，其他照原规则走；节点不支持 UDP、或兜底规则本身是直连时拦截。`reject`：拦截所有 STUN 请求（最彻底，网页音视频通话可能失败）。`off`：不处理 |
 | `udpLeakGuard` | `true` | 节点不支持 UDP、内核准备把 UDP 悄悄改成直连时，拦截其中的 QUIC（UDP 443），浏览器自动改用 TCP 走代理 |
 | `blockQUIC` | `false` | 拦截境外 QUIC，让浏览器回落到 TCP |
 | `dnsIPv6` | `false` | DNS 是否返回 IPv6 地址 |
@@ -149,17 +147,9 @@
 | `clientFingerprint` | `""` | TLS 类节点没有指纹时补上的 uTLS 指纹，比如 `"chrome"`；`""` 表示不处理 |
 | `sniffer` | `false` | 开启域名嗅探（只用嗅探到的域名匹配规则，不改写连接目标） |
 | `tuneHealthCheck` | `false` | 把订阅里自动测速分组的测速地址、间隔统一成 `healthCheck` 的值。会改变「自动选择」挑中的节点，X 这类对节点 IP 敏感的网站可能因此加载失败 |
-| `healthCheck` | 见文件 | 测速地址、间隔和容差。`tuneHealthCheck` 打开时用于订阅的分组；full 模式生成的分组始终使用 |
+| `healthCheck` | 见文件 | `tuneHealthCheck` 打开时使用的测速地址、间隔和容差 |
 | `extraRules` | `[]` | 优先级最高的自定义规则，排在防泄露规则前面 |
-| `adBlock` | `true` | full 模式下的广告拦截分组（可以在面板里切到 DIRECT） |
-| `ruleBase` / `geoBase` | jsDelivr 镜像 | 规则集和 GEO 数据的下载地址 |
-
-### full 模式生成的分组
-
-`🚀 节点选择`、`♻️ 自动选择`、`🤖 AI 服务`（默认优先美国，不含香港）、`🐙 GitHub`、`📺 YouTube`、`🔍 Google`、`✈️ Telegram`、`🎬 Netflix`、`Ⓜ️ 微软服务`（默认直连）、`🍎 苹果服务`（默认直连）、`🎯 全球直连`、`🛑 广告拦截`、`🐟 漏网之鱼`，以及按节点名自动识别出来的 `香港 / 台湾 / 日本 / 新加坡 / 美国` 测速组。
-
-- 只会给有节点的地区建分组。订阅用的是 `proxy-providers` 时没法预先知道有哪些节点，脚本会把五个地区组全部建出来。空分组会回落到 `REJECT`，不会悄悄变成直连。
-- 第一次启动时要下载规则集，下载完成前对应规则不会生效。
+| `geoBase` | jsDelivr 镜像 | GEO 数据的下载地址 |
 
 ---
 
@@ -184,8 +174,8 @@ extraRules: [
 **`router.lan` 这种局域网主机名解析不了？**
 脚本里设置 `lanDNS: "192.168.1.1"`（换成你的路由器 IP）。如果只用 `merge.yaml`，把文件里 `nameserver-policy` 下面那两行注释取消掉。
 
-**规则集或 GEO 数据下载失败？**
-把 `ruleBase` / `geoBase`（或 `merge.yaml` 里的 `geox-url`）换成你能访问的镜像，比如把 `fastly.jsdelivr.net` 换成 `testingcf.jsdelivr.net`。能直连 GitHub 的话，也可以用 `https://github.com/MetaCubeX/meta-rules-dat/raw/meta/geo` 和 `https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest`。
+**GEO 数据下载失败？**
+把 `geoBase`（或 `merge.yaml` 里的 `geox-url`）换成你能访问的镜像，比如把 `fastly.jsdelivr.net` 换成 `testingcf.jsdelivr.net`。能直连 GitHub 的话，也可以用 `https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest`。
 
 
 **订阅更新后设置会丢吗？**
