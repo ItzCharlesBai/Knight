@@ -197,14 +197,21 @@ function main(config, profileName) {
   return config;
 }
 
-// Verge 在执行扩展前已写入 GUI 的 TUN 设置，这里只能提示，改了也会被设置页覆盖
+// Verge 在执行扩展前已写入设置页管理的 TUN 字段，脚本改这些字段会被设置页覆盖，只能提示。
+// 设置页没有管理严格路由（tun 里没有这个键）时，脚本直接打开它
 function checkTun(tun) {
   if (!tun || !tun.enable) {
     if (CONFIG.webrtc !== "off") console.warn("[防泄露] 未开启 TUN 模式：浏览器的 WebRTC(UDP) 流量不经过 Clash，请开启虚拟网卡模式");
     return;
   }
-  if (tun["strict-route"] !== true) {
-    console.warn("[防泄露] 未开启「严格路由」：Windows 会绕过 TUN 直接向路由器 / IPv6 DNS 发查询，这是最常见的残留 DNS 泄露");
+  if (!("strict-route" in tun)) {
+    tun["strict-route"] = true;
+    console.log("[防泄露] 设置页未管理严格路由，已由脚本开启");
+  } else if (tun["strict-route"] !== true) {
+    console.warn(
+      "[防泄露] 未开启「严格路由」：Windows 会绕过 TUN 直接向路由器 / IPv6 DNS 发查询，这是最常见的残留 DNS 泄露。" +
+        "开启位置：设置 → 系统设置 →「虚拟网卡模式」文字右边的齿轮图标 → 严格路由"
+    );
   }
 }
 

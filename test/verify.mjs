@@ -227,8 +227,14 @@ test("lanDNS：局域网域名交给路由器，固定直连，且排在 geosite
 test("未开启 TUN / 严格路由时给出提示", () => {
   const noTun = runScript(withTun(fixture("subscription.yaml"), false)).logs;
   assert.ok(noTun.some(([l, m]) => l === "warn" && /TUN/.test(m)));
-  const noStrict = runScript(withTun(fixture("subscription.yaml"), true, {})).logs;
-  assert.ok(noStrict.some(([l, m]) => l === "warn" && /严格路由/.test(m)));
+  const strictOff = runScript(withTun(fixture("subscription.yaml"), true, { "strict-route": false }));
+  assert.ok(strictOff.logs.some(([l, m]) => l === "warn" && /严格路由/.test(m)));
+  assert.equal(strictOff.config.tun["strict-route"], false); // 设置页管理的值不去改
+
+  // 设置页没有这个键（旧版本或从未保存过 TUN 设置）：脚本直接打开
+  const unmanaged = runScript(withTun(fixture("subscription.yaml"), true, {}));
+  assert.equal(unmanaged.config.tun["strict-route"], true);
+  assert.ok(!unmanaged.logs.some(([l]) => l === "warn"));
 });
 
 test("full：按节点生成地区组与服务分流", () => {
