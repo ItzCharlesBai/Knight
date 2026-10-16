@@ -21,11 +21,15 @@ const CONFIG = {
   mainGroup: "",
 
   // WebRTC / STUN 流量：
-  //   "proxy"  发往国内 STUN 服务器的请求改走代理（会直连暴露真实 IP 的只有这部分）；
-  //            发往国外的照你原来的规则走（推荐）
+  //   "proxy"  发往国内的 STUN 请求改走代理；订阅的兜底规则是直连时，其余 STUN 也改走代理；
+  //            其他的照你原来的规则走（推荐）。订阅里明确写了直连的国外服务器仍会直连
   //   "reject" 拦截所有 STUN 请求，最彻底，但网页音视频通话可能无法建立
   //   "off"    不处理
   webrtc: "proxy",
+
+  // 节点不支持 UDP 时，内核会把本该走代理的 UDP 悄悄改成直连，暴露真实 IP。
+  // 打开后拦截其中的 QUIC（UDP 443），浏览器会自动改用 TCP 走代理（WebRTC 的这部分始终拦截）
+  udpLeakGuard: true,
 
   // ---- 以下优化默认关闭：它们会改变流量走法或节点连接方式，个别软件可能因此打不开 ----
   // 拦截境外 QUIC（UDP 443），让浏览器回落到 TCP
@@ -34,9 +38,10 @@ const CONFIG = {
   // DNS 是否返回 IPv6 地址。关闭可避免 IPv6 流量绕开代理
   dnsIPv6: false,
 
-  // 未收录在国内/境外域名列表里的域名，用境外 DoH（经代理）解析时附带的 ECS 子网。
-  // 填一个通用的国内网段（不是你的 IP），解析结果就和国内 DNS 一致，GEOIP 分流不会误判；
-  // 查询仍经代理发出，运营商看不到。填 "" 关闭（未收录的国内网站可能被判成境外走代理）
+  // 国内域名以外的域名用 Google DoH（经代理）解析时附带的 ECS 网段。
+  // 填一个通用的国内网段（不是你的 IP），解析结果就和国内 DNS 一致，GEOIP 分流不会误判
+  // （比如 Windows 更新、Steam 下载在国内有节点的服务照样直连）；查询仍经代理发出，运营商看不到。
+  // 填 "" 关闭，改用 Cloudflare + Google 且不带 ECS（部分本该直连的下载会改走代理）
   dnsECS: "223.5.5.0/24",
 
   // 拦截绕过 Clash 的国内加密 DNS（浏览器/系统里设置的阿里、腾讯、360 的 DoH/DoT），
@@ -83,12 +88,18 @@ const CONFIG = {
 };
 
 // ============================== 内置数据 ==============================
-// 国内 DoH：解析国内域名、节点域名和直连流量，固定直连
+// 国内 DNS：解析国内域名、节点域名和直连流量，固定直连。DoH 为主，普通 UDP 作后备（有的网络会拦 DoH）
 const DNS_DOMESTIC_IPS = ["223.5.5.5", "1.12.12.12"];
-// 境外 DoH：解析已知境外域名，固定走代理组，运营商看不到查询内容
+const DNS_DOMESTIC_UDP = ["223.5.5.5", "119.29.29.29"];
+// 境外 DoH（dnsECS 关闭时用），固定走代理组，运营商看不到查询内容
 const DNS_FOREIGN_IPS = ["1.1.1.1", "8.8.8.8"];
-// 解析未收录域名：Google DNS 会把 ECS 转给权威服务器（Cloudflare 不会），保证分流判断准确
+// 带 ECS 的境外 DoH：Google DNS 会把 ECS 转给权威服务器（Cloudflare 不会），保证分流判断准确
 const DNS_ECS_IPS = ["8.8.8.8", "8.8.4.4"];
+// 系统联网检测、时间同步、游戏平台：不敏感，交给国内 DNS，节点不可用时也不会出现“无 Internet”
+const SYSTEM_DOMAINS =
+  "+.msftconnecttest.com,+.msftncsi.com,time.windows.com,time.apple.com,time-ios.apple.com,time.asia.apple.com," +
+  "+.pool.ntp.org,+.ntp.org.cn,+.srv.nintendo.net,+.stun.playstation.net,xbox.*.microsoft.com,+.xboxlive.com";
+const LAN_DOMAINS = "+.lan,+.local,+.localdomain,+.home.arpa";
 // 仅用于解析 DoH 服务器自身的域名（上面都是 IP，基本用不到）
 const DNS_BOOTSTRAP = ["223.5.5.5", "119.29.29.29"];
 
@@ -98,6 +109,8 @@ const BYPASS_DNS_RULES = [
   "DOMAIN-SUFFIX,doh.pub,REJECT",
   "DOMAIN-SUFFIX,dns.pub,REJECT",
   "DOMAIN,doh.360.cn,REJECT",
+  "DOMAIN,dot.pub,REJECT",
+  "DOMAIN,dot.360.cn,REJECT",
   "IP-CIDR,223.5.5.5/32,REJECT,no-resolve",
   "IP-CIDR,223.6.6.6/32,REJECT,no-resolve",
   "IP-CIDR,1.12.12.12/32,REJECT,no-resolve",
@@ -220,9 +233,10 @@ function main(config, profileName) {
 
   applyDNS(config, target);
 
-  const head = CONFIG.extraRules.concat(leakRules(target));
-  const rules = Array.isArray(config.rules) ? config.rules : [];
-  config.rules = head.concat(rules.filter((r) => head.indexOf(r) < 0));
+  const head = CONFIG.extraRules.concat(headRules(target));
+  const tail = tailRules();
+  const rules = (Array.isArray(config.rules) ? config.rules : []).filter((r) => head.indexOf(r) < 0 && tail.indexOf(r) < 0);
+  config.rules = head.concat(guardDirectMatch(config, rules, target), tail);
 
   checkTun(config.tun);
   return config;
@@ -267,56 +281,76 @@ function applyDNS(config, target) {
   // 分组名含 & % # 时 URL 无法表达，退回 respect-rules（按规则出站）
   const proxy = target && !/[&%#]/.test(target) ? target : "";
   if (target && !proxy) console.warn("[防泄露] 分组名 “" + target + "” 含 & % #，境外 DNS 改为按规则出站");
-  const ecs = CONFIG.dnsECS ? ["ecs=" + CONFIG.dnsECS, "ecs-override=true"] : [];
+  const via = proxy ? [proxy] : [];
   const doh = (ip, params) => "https://" + ip + "/dns-query" + (params.length ? "#" + params.join("&") : "");
 
-  const domestic = DNS_DOMESTIC_IPS.map((ip) => doh(ip, ["DIRECT"]));
-  const foreign = DNS_FOREIGN_IPS.map((ip) => doh(ip, proxy ? [proxy] : []));
-  const unknown = ecs.length ? DNS_ECS_IPS.map((ip) => doh(ip, (proxy ? [proxy] : []).concat(ecs))) : foreign.slice();
+  const domestic = DNS_DOMESTIC_IPS.map((ip) => doh(ip, ["DIRECT"])).concat(DNS_DOMESTIC_UDP.map((ip) => ip + "#DIRECT"));
+  const foreign = CONFIG.dnsECS
+    ? DNS_ECS_IPS.map((ip) => doh(ip, via.concat(["ecs=" + CONFIG.dnsECS, "ecs-override=true"])))
+    : DNS_FOREIGN_IPS.map((ip) => doh(ip, via));
   const old = config.dns && typeof config.dns === "object" ? config.dns : {};
 
-  // policy 按书写顺序匹配：局域网 → 国内 → 已知境外 → 订阅自带的条目；都不命中的交给 nameserver（带 ECS）
-  const policy = {};
-  if (CONFIG.lanDNS) policy["+.lan,+.local,+.localdomain,+.home.arpa"] = [CONFIG.lanDNS + "#DIRECT"];
-  policy["geosite:cn,private"] = domestic.slice();
-  policy["geosite:geolocation-!cn"] = foreign;
+  // policy 按书写顺序匹配，第一个命中的生效：
+  //   局域网 → 订阅针对具体域名写的条目（机场面板、公司内网、路由器等，保持原效果并固定直连）
+  //   → 系统服务 → 国内 → 境外 → 订阅的 geosite / rule-set 大类条目；都不命中的交给 nameserver
   const oldPolicy = old["nameserver-policy"] && typeof old["nameserver-policy"] === "object" ? old["nameserver-policy"] : {};
+  const policy = {};
+  const put = (key, value) => {
+    if (!(key in policy)) policy[key] = value;
+  };
+  if (CONFIG.lanDNS) put(LAN_DOMAINS, [CONFIG.lanDNS + "#DIRECT"]);
   Object.keys(oldPolicy).forEach((key) => {
-    if (!(key in policy)) policy[key] = oldPolicy[key];
+    if (!/^(geosite|rule-set):/i.test(key)) put(key, pinDirect(oldPolicy[key]));
   });
+  put(SYSTEM_DOMAINS, domestic.slice());
+  put("geosite:cn,private", domestic.slice());
+  put("geosite:geolocation-!cn", foreign.slice());
+  Object.keys(oldPolicy).forEach((key) => put(key, pinDirect(oldPolicy[key])));
 
-  // 在订阅原有 DNS 设置上叠加：只替换会造成泄露的上游，其余（模式、过滤列表、hosts 等）保留
+  // 在订阅原有 DNS 设置上叠加：只替换会造成泄露的上游，其余（监听、hosts、过滤列表等）保留
+  const oldPsn = old["proxy-server-nameserver"];
   const dns = Object.assign({}, old, {
     enable: true,
     ipv6: CONFIG.dnsIPv6,
     "prefer-h3": false,
     "respect-rules": true,
     "cache-algorithm": old["cache-algorithm"] || "arc",
+    "enhanced-mode": "fake-ip",
     "default-nameserver": DNS_BOOTSTRAP.slice(),
-    "proxy-server-nameserver": domestic.slice(),
+    // 解析节点域名：订阅自己指定了就沿用
+    "proxy-server-nameserver": Array.isArray(oldPsn) && oldPsn.length ? oldPsn : domestic.slice(),
     "direct-nameserver": domestic.slice(),
-    nameserver: unknown,
+    nameserver: foreign.slice(),
     "nameserver-policy": policy,
   });
   delete dns.fallback; // 旧式“国内 + 境外同时查”的设置，会把境外域名发给国内 DNS
   delete dns["fallback-filter"];
 
-  // 订阅原本用 redir-host 就保持；否则用 Fake-IP（Verge TUN 的默认）
-  if (dns["enhanced-mode"] !== "redir-host") dns["enhanced-mode"] = "fake-ip";
-  if (dns["enhanced-mode"] === "fake-ip") {
-    if (!dns["fake-ip-range"]) dns["fake-ip-range"] = "198.18.0.1/16";
-    if (dns["fake-ip-filter-mode"] !== "whitelist") {
-      // 黑名单模式：与订阅的列表合并；白名单模式下列表含义相反，保持订阅原样
-      dns["fake-ip-filter-mode"] = "blacklist";
-      const merged = (Array.isArray(old["fake-ip-filter"]) ? old["fake-ip-filter"] : []).slice();
-      FAKE_IP_FILTER.forEach((d) => {
-        if (merged.indexOf(d) < 0) merged.push(d);
-      });
-      dns["fake-ip-filter"] = merged;
-    }
+  // redir-host 下每次解析境外域名都要等节点，节点一慢所有软件都慢；统一用 Fake-IP（Verge TUN 的默认）
+  if (old["enhanced-mode"] === "redir-host") console.log("[防泄露] 订阅用的是 redir-host，已改为 Fake-IP，避免每次解析境外域名都要等节点");
+  if (!dns["fake-ip-range"]) dns["fake-ip-range"] = "198.18.0.1/16";
+  const mode = dns["fake-ip-filter-mode"];
+  if (!mode || mode === "blacklist") {
+    // 黑名单模式：与订阅的列表合并；白名单 / rule 模式下列表含义不同，保持订阅原样
+    dns["fake-ip-filter-mode"] = "blacklist";
+    const merged = (Array.isArray(old["fake-ip-filter"]) ? old["fake-ip-filter"] : []).slice();
+    FAKE_IP_FILTER.forEach((d) => {
+      if (merged.indexOf(d) < 0) merged.push(d);
+    });
+    dns["fake-ip-filter"] = merged;
   }
   if (CONFIG.dnsIPv6) dns["fake-ip-range6"] = old["fake-ip-range6"] || "2001:2::0/64";
   config.dns = dns;
+}
+
+// 订阅 policy 里没指定出站的服务器补上 #DIRECT：开了 respect-rules 后它们不会被分流规则拦截或送进代理，
+// 效果和原来一样。system / dhcp 这类特殊写法不能加
+function pinDirect(value) {
+  return (Array.isArray(value) ? value : [value]).map((server) =>
+    typeof server === "string" && server.indexOf("#") < 0 && !/^(system|dhcp:|rcode:|ts:|tailscale:|et:|easytier:)/i.test(server)
+      ? server + "#DIRECT"
+      : server
+  );
 }
 
 // ============================== 域名嗅探 ==============================
@@ -336,20 +370,52 @@ function applySniffer(config) {
 }
 
 // ============================== 防泄露规则 ==============================
-function leakRules(target) {
-  // 这里只放防泄露所需的规则；DNS 服务器的出站已在 DNS 地址里固定，不再占用分流规则
+// 放在最前面的防泄露规则
+function headRules(target) {
+  // DNS 服务器的出站已在 DNS 地址里固定，不再占用分流规则
   const rules = CONFIG.blockDNSBypass ? BYPASS_DNS_RULES.slice() : [];
 
-  // WebRTC：直连暴露真实 IP 的只有发往国内 STUN 服务器的请求，只把这部分改走代理；
-  // 发往国外的 STUN 照原规则走，不打乱国外软件的分流
+  // WebRTC：发往国内 STUN 服务器的请求会被订阅的 GEOIP,CN 等规则直连，暴露真实 IP，只把这部分改走代理。
+  // no-resolve：不为判断去解析域名（国内域名由 GEOSITE,cn 识别），不拖慢其他软件的连接
+  const cnStun = "AND,((DST-PORT," + STUN_PORTS + "),(OR,((GEOSITE,cn),(GEOIP,CN,no-resolve))))";
   if (CONFIG.webrtc === "reject" || (CONFIG.webrtc === "proxy" && !target)) {
     rules.push("DST-PORT," + STUN_PORTS + ",REJECT");
   } else if (CONFIG.webrtc === "proxy") {
-    rules.push("AND,((DST-PORT," + STUN_PORTS + "),(OR,((GEOSITE,cn),(GEOIP,CN))))," + target);
+    rules.push(cnStun + "," + target);
+    // 代理组的节点不支持 UDP 时内核会跳过上一条继续往下匹配，最后直连；这里兜住
+    rules.push(cnStun + ",REJECT");
   }
 
   if (CONFIG.blockQUIC) rules.push("AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((GEOSITE,cn)))),REJECT");
   return rules;
+}
+
+// 放在订阅规则最后（MATCH 之后）：只有规则选中的代理不支持 UDP、内核准备悄悄改成直连时才会走到这里
+function tailRules() {
+  const rules = [];
+  if (CONFIG.webrtc !== "off") rules.push("AND,((NETWORK,UDP),(DST-PORT," + STUN_PORTS + ")),REJECT");
+  if (CONFIG.udpLeakGuard) rules.push("AND,((NETWORK,UDP),(DST-PORT,443)),REJECT");
+  return rules;
+}
+
+// 订阅的兜底规则（MATCH）是直连时（白名单模式），网页可以挑一个国外 STUN 服务器直连拿到真实 IP，
+// 在 MATCH 前把这部分 STUN 改走代理；局域网的不动
+function guardDirectMatch(config, rules, target) {
+  if (CONFIG.webrtc !== "proxy" || !target) return rules;
+  const index = rules.findIndex((r) => /^MATCH,/i.test(r));
+  if (index < 0 || !isDirectPolicy(config, rules[index].split(",")[1].trim())) return rules;
+  const stun = "AND,((DST-PORT," + STUN_PORTS + "),(NOT,((GEOIP,LAN,no-resolve))))";
+  if (rules.indexOf(stun + "," + target) >= 0) return rules;
+  return rules.slice(0, index).concat([stun + "," + target, stun + ",REJECT"], rules.slice(index));
+}
+
+const BUILTIN_NONPROXY = ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"];
+
+// DIRECT 本身，或第一个选项是 DIRECT 的分组
+function isDirectPolicy(config, name) {
+  if (name === "DIRECT") return true;
+  const group = (config["proxy-groups"] || []).find((g) => g && g.name === name);
+  return !!group && Array.isArray(group.proxies) && group.proxies[0] === "DIRECT";
 }
 
 // ============================== 节点处理 ==============================
@@ -428,16 +494,27 @@ function tuneGroups(config) {
 function pickMainGroup(config) {
   const groups = (config["proxy-groups"] || []).filter((g) => g && typeof g.name === "string");
   const byName = (name) => groups.find((g) => g.name === name);
+  // 第一个选项是 DIRECT / REJECT 的分组不能当出口，否则境外 DNS 会直连（国内连不上 Google / Cloudflare）
+  const usable = (g) => !(Array.isArray(g.proxies) && g.proxies.length && BUILTIN_NONPROXY.indexOf(g.proxies[0]) >= 0);
+  const fallback = (name, why) => {
+    console.warn("[防泄露] " + why + "，境外 DNS 和 WebRTC 改用「" + name + "」出站；不对的话请在 CONFIG.mainGroup 里指定");
+    return name;
+  };
 
   if (CONFIG.mainGroup) {
     if (byName(CONFIG.mainGroup)) return CONFIG.mainGroup;
     console.warn("[防泄露] 未找到分组 “" + CONFIG.mainGroup + "”，改为自动识别");
   }
-  const selects = groups.filter((g) => g.type === "select");
-  const named = selects.find((g) => /节点选择|代理选择|选择节点|选择代理|手动选择|[Pp]roxy|PROXY/.test(g.name));
+  const named = groups.find((g) => g.type === "select" && usable(g) && /节点选择|代理选择|选择节点|选择代理|手动选择|[Pp]roxy|PROXY/.test(g.name));
   if (named) return named.name;
-  if (selects.length) return selects[0].name;
-  if (groups.length) return groups[0].name;
+
+  // 订阅兜底规则（MATCH）指向的分组，通常就是主出口
+  const match = (Array.isArray(config.rules) ? config.rules : []).find((r) => /^MATCH,/i.test(r));
+  const matchGroup = match && byName(match.split(",")[1].trim());
+  if (matchGroup && usable(matchGroup)) return fallback(matchGroup.name, "没找到名字带「节点选择 / Proxy」的分组");
+
+  const other = groups.find((g) => g.type === "select" && usable(g)) || groups.find(usable);
+  if (other) return fallback(other.name, "没找到名字带「节点选择 / Proxy」的分组");
 
   const first = nodeList(config).find((p) => p && p.name);
   return first ? first.name : null;
