@@ -5,7 +5,7 @@
  * 内核：mihomo ≥ 1.19（Clash Verge Rev 自带）
  * 用法：订阅 → 全局扩展脚本 → 编辑文件 → 全选粘贴本文件 → 保存
  *       只想对某个订阅生效：右键该订阅 → 扩展脚本
- * 说明：可单独使用，也可与 merge.yaml 同时启用（两者写入的 DNS/嗅探参数一致）。
+ * 说明：可单独使用，也可与 merge.yaml 同时启用（两者的 DNS/嗅探参数一致，脚本额外把境外 DNS 固定到代理组）。
  *       WebRTC 防护依赖 TUN（虚拟网卡）模式，详见 README。
  */
 
@@ -29,6 +29,15 @@ const CONFIG = {
 
   // DNS 是否返回 IPv6 地址。关闭可避免 IPv6 流量绕开代理
   dnsIPv6: false,
+
+  // 未收录在国内/境外域名列表里的域名，用境外 DoH（经代理）解析时附带的 ECS 子网。
+  // 填一个通用的国内网段（不是你的 IP），解析结果就和国内 DNS 一致，GEOIP 分流不会误判；
+  // 查询仍经代理发出，运营商看不到。填 "" 关闭（未收录的国内网站可能被判成境外走代理）
+  dnsECS: "223.5.5.0/24",
+
+  // 拦截绕过 Clash 的国内加密 DNS（浏览器/系统里设置的阿里、腾讯 DoH，以及所有 DoT/DoQ），
+  // 它们会自动回落到普通 DNS，由 Clash 接管。内核自己的 DNS 查询不受影响
+  blockDNSBypass: true,
 
   // 局域网主机名（router.lan、nas.local 等）交给哪个 DNS 解析，填路由器 IP，如 "192.168.1.1"；留空不处理
   lanDNS: "",
@@ -63,12 +72,29 @@ const CONFIG = {
 };
 
 // ============================== 内置数据 ==============================
-// 国内 DoH：解析国内域名、节点域名和直连流量
+// 国内 DoH：解析国内域名、节点域名和直连流量，固定直连
 const DNS_DOMESTIC_IPS = ["223.5.5.5", "1.12.12.12"];
-// 境外 DoH：解析其余所有域名，经 respect-rules 走代理发出，运营商看不到查询内容
+// 境外 DoH：解析已知境外域名，固定走代理组，运营商看不到查询内容
 const DNS_FOREIGN_IPS = ["1.1.1.1", "8.8.8.8"];
+// 解析未收录域名：Google DNS 会把 ECS 转给权威服务器（Cloudflare 不会），保证分流判断准确
+const DNS_ECS_IPS = ["8.8.8.8", "8.8.4.4"];
 // 仅用于解析 DoH 服务器自身的域名（上面都是 IP，基本用不到）
 const DNS_BOOTSTRAP = ["223.5.5.5", "119.29.29.29"];
+
+// 会绕过 Clash 的国内加密 DNS 端点（53 端口的普通 DNS 已被 TUN 劫持，不在此列）
+const BYPASS_DNS_RULES = [
+  "DOMAIN,dns.alidns.com,REJECT",
+  "DOMAIN-SUFFIX,doh.pub,REJECT",
+  "DOMAIN-SUFFIX,dns.pub,REJECT",
+  "DOMAIN,doh.360.cn,REJECT",
+  "IP-CIDR,223.5.5.5/32,REJECT,no-resolve",
+  "IP-CIDR,223.6.6.6/32,REJECT,no-resolve",
+  "IP-CIDR,1.12.12.12/32,REJECT,no-resolve",
+  "IP-CIDR,120.53.53.53/32,REJECT,no-resolve",
+  "IP-CIDR6,2400:3200::1/128,REJECT,no-resolve",
+  "IP-CIDR6,2400:3200:baba::1/128,REJECT,no-resolve",
+  "DST-PORT,853,REJECT", // DoT / DoQ
+];
 
 // STUN / TURN 常用端口：3478-3479 标准端口，5349-5350 TLS，19302-19309 Google
 const STUN_PORTS = ["3478-3479", "5349-5350", "19302-19309"];
@@ -147,7 +173,6 @@ function main(config, profileName) {
   if (!config || typeof config !== "object") return config;
 
   applyBase(config);
-  applyDNS(config);
   applySniffer(config);
   if (CONFIG.removeInfoNodes) removeInfoNodes(config);
   tuneProxies(config);
@@ -160,16 +185,27 @@ function main(config, profileName) {
     tuneGroups(config);
     target = pickMainGroup(config);
   }
-  if (!target) console.warn("[防泄露] 找不到代理分组：境外 DoH 规则未添加" + (CONFIG.webrtc === "off" ? "" : "，WebRTC 流量改为拦截"));
+  if (!target) console.warn("[防泄露] 找不到代理分组：境外 DNS 将按规则出站" + (CONFIG.webrtc === "off" ? "" : "，WebRTC 流量改为拦截"));
+
+  applyDNS(config, target);
 
   const head = CONFIG.extraRules.concat(leakRules(target));
   const rules = Array.isArray(config.rules) ? config.rules : [];
   config.rules = head.concat(rules.filter((r) => head.indexOf(r) < 0));
 
-  if (CONFIG.webrtc !== "off" && !(config.tun && config.tun.enable)) {
-    console.warn("[防泄露] 未开启 TUN 模式：浏览器的 WebRTC(UDP) 流量不经过 Clash，请开启虚拟网卡模式");
-  }
+  checkTun(config.tun);
   return config;
+}
+
+// Verge 在执行扩展前已写入 GUI 的 TUN 设置，这里只能提示，改了也会被设置页覆盖
+function checkTun(tun) {
+  if (!tun || !tun.enable) {
+    if (CONFIG.webrtc !== "off") console.warn("[防泄露] 未开启 TUN 模式：浏览器的 WebRTC(UDP) 流量不经过 Clash，请开启虚拟网卡模式");
+    return;
+  }
+  if (tun["strict-route"] !== true) {
+    console.warn("[防泄露] 未开启「严格路由」：Windows 会绕过 TUN 直接向路由器 / IPv6 DNS 发查询，这是最常见的残留 DNS 泄露");
+  }
 }
 
 // ============================== 基础与性能 ==============================
@@ -188,14 +224,24 @@ function applyBase(config) {
 }
 
 // ============================== DNS ==============================
-function applyDNS(config) {
-  const doh = (ip) => "https://" + ip + "/dns-query";
-  const domestic = DNS_DOMESTIC_IPS.map(doh);
+function applyDNS(config, target) {
+  // “#出站&参数” 让每个 DNS 服务器固定出站，不经过分流规则，也就不需要为它们加规则、改动你的分流。
+  // 分组名含 & % # 时 URL 无法表达，退回 respect-rules（按规则出站）
+  const proxy = target && !/[&%#]/.test(target) ? target : "";
+  if (target && !proxy) console.warn("[防泄露] 分组名 “" + target + "” 含 & % #，境外 DNS 改为按规则出站");
+  const ecs = CONFIG.dnsECS ? ["ecs=" + CONFIG.dnsECS, "ecs-override=true"] : [];
+  const doh = (ip, params) => "https://" + ip + "/dns-query" + (params.length ? "#" + params.join("&") : "");
+
+  const domestic = DNS_DOMESTIC_IPS.map((ip) => doh(ip, ["DIRECT"]));
+  const foreign = DNS_FOREIGN_IPS.map((ip) => doh(ip, proxy ? [proxy] : []));
+  const unknown = ecs.length ? DNS_ECS_IPS.map((ip) => doh(ip, (proxy ? [proxy] : []).concat(ecs))) : foreign.slice();
   const old = config.dns || {};
-  // policy 按书写顺序匹配，局域网条目必须在 geosite 之前
+
+  // policy 按书写顺序匹配：局域网 → 国内 → 已知境外；都不命中的交给 nameserver（带 ECS）
   const policy = {};
-  if (CONFIG.lanDNS) policy["+.lan,+.local,+.localdomain,+.home.arpa"] = [CONFIG.lanDNS];
+  if (CONFIG.lanDNS) policy["+.lan,+.local,+.localdomain,+.home.arpa"] = [CONFIG.lanDNS + "#DIRECT"];
   policy["geosite:cn,private"] = domestic.slice();
+  policy["geosite:geolocation-!cn"] = foreign;
 
   // 整段替换：丢弃订阅里的 fallback / 旧 policy 等可能导致泄露的设置
   const dns = {
@@ -211,7 +257,7 @@ function applyDNS(config) {
     "default-nameserver": DNS_BOOTSTRAP.slice(),
     "proxy-server-nameserver": domestic.slice(),
     "direct-nameserver": domestic.slice(),
-    nameserver: DNS_FOREIGN_IPS.map(doh),
+    nameserver: unknown,
     "nameserver-policy": policy,
   };
   if (CONFIG.dnsIPv6) dns["fake-ip-range6"] = old["fake-ip-range6"] || "2001:2::0/64";
@@ -237,11 +283,8 @@ function applySniffer(config) {
 
 // ============================== 防泄露规则 ==============================
 function leakRules(target) {
-  const rules = [];
-  // DoH 服务器自身的走向：国内直连、境外走代理（配合 respect-rules，确定性最强）
-  DNS_DOMESTIC_IPS.forEach((ip) => rules.push("IP-CIDR," + ip + "/32,DIRECT,no-resolve"));
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(CONFIG.lanDNS)) rules.push("IP-CIDR," + CONFIG.lanDNS + "/32,DIRECT,no-resolve");
-  if (target) DNS_FOREIGN_IPS.forEach((ip) => rules.push("IP-CIDR," + ip + "/32," + target + ",no-resolve"));
+  // 这里只放防泄露所需的规则；DNS 服务器的出站已在 DNS 地址里固定，不再占用分流规则
+  const rules = CONFIG.blockDNSBypass ? BYPASS_DNS_RULES.slice() : [];
 
   // WebRTC：无论 STUN 服务器在国内还是国外，都不允许直连暴露真实 IP
   if (CONFIG.webrtc !== "off") {
