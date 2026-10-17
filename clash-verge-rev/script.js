@@ -18,11 +18,13 @@ const CONFIG = {
   proxyGroup: "",
 
   // WebRTC / STUN 流量：
-  //   "proxy"  发往国内的 STUN 请求改走代理分组；其他的照你原来的规则走（推荐）。
-  //            兜底规则本身是直连时没有代理出口，这部分 STUN 改为拦截
+  //   "follow" 跟着订阅的分流走：国内网站直连、国外网站走代理（默认）。
+  //            只拦截一种泄露：节点不支持 UDP 时内核会把本该走代理的 STUN 悄悄改成直连
+  //   "strict" 在 follow 基础上，发往国内的 STUN 也改走代理分组，防止国外网站借国内 STUN 服务器探测真实 IP；
+  //            代价是 B 站等国内网站的 WebRTC 也会绕道代理（旧写法 "proxy" 等同于它）
   //   "reject" 拦截所有 STUN 请求，最彻底，但网页音视频通话可能无法建立
   //   "off"    不处理
-  webrtc: "proxy",
+  webrtc: "follow",
 
   // 节点不支持 UDP 时，内核会把本该走代理的 UDP 悄悄改成直连，暴露真实 IP。
   // 打开后拦截其中的 QUIC（UDP 443），浏览器会自动改用 TCP 走代理（WebRTC 的这部分始终拦截）
@@ -325,14 +327,14 @@ function headRules(target) {
   // 境外 DNS 的出站已在 DNS 地址里固定，不再占用分流规则
   const rules = CONFIG.blockDNSBypass ? BYPASS_DNS_RULES.slice() : [];
 
-  // WebRTC：发往国内 STUN 服务器的请求会被订阅的 GEOIP,CN 等规则直连，暴露真实 IP，只把这部分改走代理。
+  // strict：发往国内 STUN 服务器的请求会被订阅的 GEOIP,CN 等规则直连，改走代理分组。
   // no-resolve：不为判断去解析域名（国内域名由 GEOSITE,cn 识别），不拖慢其他软件的连接
   const cnStun = "AND,((DST-PORT," + STUN_PORTS + "),(OR,((GEOSITE,cn),(GEOIP,CN,no-resolve))))";
   if (CONFIG.webrtc === "reject") {
     rules.push("DST-PORT," + STUN_PORTS + ",REJECT");
-  } else if (CONFIG.webrtc === "proxy" && !target) {
+  } else if (isStrict() && !target) {
     rules.push(cnStun + ",REJECT"); // 没有代理出口可用：发往国内的 STUN 直接拦截
-  } else if (CONFIG.webrtc === "proxy") {
+  } else if (isStrict()) {
     rules.push(cnStun + "," + target);
     // 代理组的节点不支持 UDP 时内核会跳过上一条继续往下匹配，最后直连；这里兜住
     rules.push(cnStun + ",REJECT");
@@ -352,6 +354,10 @@ function tailRules() {
 
 const BUILTIN_NONPROXY = ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"];
 
+function isStrict() {
+  return CONFIG.webrtc === "strict" || CONFIG.webrtc === "proxy";
+}
+
 // 代理出口：不写死分组名，取订阅兜底规则（MATCH）指向的分组——它就是订阅给“其余流量”定的出口。
 // 兜底是直连（或第一个选项是直连的分组）时没有代理出口，返回 null
 function proxyTarget(config) {
@@ -363,7 +369,7 @@ function proxyTarget(config) {
   const name = matchTarget(config.rules);
   if (name && !isDirectPolicy(groups, name)) return name;
   console.warn(
-    "[防泄露] 订阅的兜底规则不是代理分组：境外 DNS 改为按分流规则出站，发往国内和未收录服务器的 STUN 改为拦截"
+    "[防泄露] 订阅的兜底规则不是代理分组：境外 DNS 改为按分流规则出站" + (isStrict() ? "，发往国内和未收录服务器的 STUN 改为拦截" : "")
   );
   return null;
 }
@@ -380,10 +386,10 @@ function isDirectPolicy(groups, name) {
   return !!group && Array.isArray(group.proxies) && BUILTIN_NONPROXY.indexOf(group.proxies[0]) >= 0;
 }
 
-// 兜底规则是直连时（白名单式订阅），网页可以挑一个未收录的国外 STUN 服务器直连拿到真实 IP。
+// strict：兜底规则是直连时（白名单式订阅），网页可以挑一个未收录的国外 STUN 服务器直连拿到真实 IP。
 // 这种订阅没有代理出口可用，在兜底规则前把这部分 STUN 拦截；局域网的不动
 function guardDirectMatch(rules, target) {
-  if (CONFIG.webrtc !== "proxy" || target) return rules;
+  if (!isStrict() || target) return rules;
   const index = rules.findIndex((r) => /^MATCH,/i.test(r));
   if (index < 0) return rules;
   const guard = "AND,((DST-PORT," + STUN_PORTS + "),(NOT,((GEOIP,LAN,no-resolve)))),REJECT";

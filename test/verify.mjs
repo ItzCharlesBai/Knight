@@ -116,11 +116,12 @@ const outputs = {};
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
 
-test("enhance：订阅自己的分流原样保留，防泄露规则只在最前和最后", () => {
+test("默认：订阅自己的分流原样保留，最前只加加密 DNS 拦截，最后只加 UDP 兜底", () => {
   const sub = fixture("subscription.yaml");
   const { config, logs } = runScript(withTun(useMerge(MERGE, sub)));
-  const head = leakHead("🐟 漏网之鱼");
-  assert.deepEqual(config.rules, [...head, ...sub.rules, ...TAIL]);
+  assert.deepEqual(config.rules, [...BYPASS, ...sub.rules, ...TAIL]);
+  // 国内网站的 WebRTC 跟着订阅直连：没有任何把 STUN 送进代理的规则
+  assert.ok(!config.rules.some((r) => r.includes("DST-PORT," + STUN) && !r.endsWith(",REJECT")));
   // 不拦 QUIC、不拦整个 853 端口、不为 DNS 服务器加改变分流的规则
   assert.ok(!config.rules.some((r) => /^DST-PORT,853|^IP-CIDR,(1\.1\.1\.1|8\.8\.8\.8)\/|NOT,\(\(GEOSITE,cn\)\)\)\),REJECT/.test(r)));
   assert.equal(logs.filter(([l]) => l === "warn").length, 0);
@@ -248,7 +249,7 @@ test("DNS：关闭 ECS 时改用 Cloudflare/Google", () => {
 test("DNS：分组名含 & 时退回按规则出站，不生成错误地址", () => {
   const sub = fixture("subscription.yaml");
   const text = JSON.stringify(sub).split("🐟 漏网之鱼").join("Final & Co");
-  const { config, logs } = runScript(withTun(JSON.parse(text)));
+  const { config, logs } = runScript(withTun(JSON.parse(text)), { webrtc: "strict" });
   assert.deepEqual(config.dns.nameserver, googleECS(""));
   assert.ok(logs.some(([l, m]) => l === "warn" && /按分流规则出站/.test(m)));
   assert.ok(config.rules.includes(`${CN_STUN},Final & Co`));
@@ -275,9 +276,11 @@ test("merge.yaml 与 script.js 写入的 DNS 值一致（脚本额外固定代�
   outputs["merge-only"] = merged;
 });
 
-test("WebRTC：节点不支持 UDP 时兜底拦截；reject / off 可选", () => {
+test("WebRTC strict：国内 STUN 走代理，节点不支持 UDP 时兜底拦截；reject / off 可选", () => {
   const sub = withTun(fixture("subscription.yaml"));
-  const { rules } = runScript(sub).config;
+  const { rules } = runScript(sub, { webrtc: "strict" }).config;
+  assert.deepEqual(rules.slice(0, BYPASS.length + 2), leakHead("🐟 漏网之鱼"));
+  assert.deepEqual(runScript(sub, { webrtc: "proxy" }).config.rules, rules); // 旧写法等同 strict
   const i = rules.indexOf(`${CN_STUN},🐟 漏网之鱼`);
   assert.equal(rules[i + 1], `${CN_STUN},REJECT`); // 代理组不支持 UDP 时接住
   assert.ok(rules.indexOf("MATCH,🐟 漏网之鱼") < rules.indexOf(TAIL[0])); // 兜底在 MATCH 之后
@@ -290,12 +293,12 @@ test("WebRTC：节点不支持 UDP 时兜底拦截；reject / off 可选", () =>
 test("出口不写死：跟随订阅兜底规则指向的分组，订阅改名自动跟上；proxyGroup 可手动指定", () => {
   const sub = fixture("subscription.yaml");
   const renamed = JSON.parse(JSON.stringify(sub).split("🐟 漏网之鱼").join("🌍 其他流量").split("🚀 节点选择").join("✈️ 机场线路"));
-  const auto = runScript(withTun(renamed)).config;
+  const auto = runScript(withTun(renamed), { webrtc: "strict" }).config;
   assert.deepEqual(auto.dns.nameserver, googleECS("🌍 其他流量"));
   assert.ok(auto.rules.includes(`${CN_STUN},🌍 其他流量`));
   assert.ok(!JSON.stringify(auto.dns).includes("节点选择") && !JSON.stringify(auto.rules).includes("节点选择"));
 
-  const manual = runScript(withTun(sub), { proxyGroup: "♻️ 自动选择" }).config;
+  const manual = runScript(withTun(sub), { proxyGroup: "♻️ 自动选择", webrtc: "strict" }).config;
   assert.deepEqual(manual.dns.nameserver, googleECS("♻️ 自动选择"));
   assert.ok(manual.rules.includes(`${CN_STUN},♻️ 自动选择`));
   checkReferences(auto);
@@ -305,28 +308,30 @@ test("出口不写死：跟随订阅兜底规则指向的分组，订阅改名�
 test("兜底分组第一个选项是 DIRECT 时不当作代理出口", () => {
   const sub = fixture("subscription.yaml");
   sub["proxy-groups"].find((g) => g.name === "🐟 漏网之鱼").proxies = ["DIRECT", "🚀 节点选择"];
-  const { config, logs } = runScript(withTun(sub));
+  const { config, logs } = runScript(withTun(sub), { webrtc: "strict" });
   assert.deepEqual(config.dns.nameserver, googleECS(""));
   assert.ok(config.rules.includes(`${CN_STUN},REJECT`));
   assert.ok(logs.some(([l, m]) => l === "warn" && /兜底规则不是代理分组/.test(m)));
 });
 
-test("WebRTC：兜底规则是直连时（白名单式订阅）拦截 STUN；重复运行不叠加", () => {
+test("WebRTC strict：兜底规则是直连时（白名单式订阅）拦截 STUN；重复运行不叠加；默认模式不拦", () => {
   const sub = fixture("subscription.yaml");
   sub.rules = ["DOMAIN-SUFFIX,google.com,🚀 节点选择", "MATCH,DIRECT"];
-  const once = runScript(withTun(sub)).config;
+  const follow = runScript(withTun(sub)).config;
+  assert.deepEqual(follow.rules, [...BYPASS, ...sub.rules, ...TAIL]);
+  const once = runScript(withTun(sub), { webrtc: "strict" }).config;
   const guard = `AND,((DST-PORT,${STUN}),(NOT,((GEOIP,LAN,no-resolve)))),REJECT`;
   const m = once.rules.indexOf("MATCH,DIRECT");
   assert.equal(once.rules[m - 1], guard);
   assert.ok(once.rules.includes(`${CN_STUN},REJECT`));
   assert.ok(!once.rules.some((r) => r.startsWith(CN_STUN + ",") && !r.endsWith(",REJECT")));
-  const twice = runScript(withTun(once)).config;
+  const twice = runScript(withTun(once), { webrtc: "strict" }).config;
   assert.deepEqual(twice.rules, once.rules);
   checkReferences(once);
   outputs["whitelist-match"] = once;
 
   // 兜底是代理分组时不插入
-  const normal = runScript(withTun(fixture("subscription.yaml"))).config;
+  const normal = runScript(withTun(fixture("subscription.yaml")), { webrtc: "strict" }).config;
   assert.ok(!normal.rules.some((r) => r.includes("GEOIP,LAN")));
 });
 
@@ -362,7 +367,7 @@ test("未开启 TUN / 严格路由时给出提示", () => {
 
 test("proxy-providers 订阅：不过滤代理集合节点，出口跟随兜底规则", () => {
   const enhance = runScript(withTun(fixture("providers.yaml"))).config;
-  assert.ok(enhance.rules.includes(`${CN_STUN},Proxy`));
+  assert.ok(runScript(withTun(fixture("providers.yaml")), { webrtc: "strict" }).config.rules.includes(`${CN_STUN},Proxy`));
   assert.ok(enhance.dns.nameserver[0].includes("#Proxy&"));
   assert.equal(enhance["proxy-providers"].airport["health-check"].url, "http://cp.cloudflare.com"); // 默认不改
   assert.equal(enhance["proxy-providers"].airport["exclude-filter"], undefined);
@@ -370,9 +375,10 @@ test("proxy-providers 订阅：不过滤代理集合节点，出口跟随兜底�
   outputs["providers-enhance"] = enhance;
 });
 
-test("没有任何节点、兜底是直连时不报错：境外 DNS 按规则出站，STUN 拦截", () => {
+test("没有任何节点、兜底是直连时不报错：境外 DNS 按规则出站", () => {
   const { config, logs } = runScript(withTun({ proxies: [], rules: ["MATCH,DIRECT"] }));
-  assert.ok(config.rules.includes(`${CN_STUN},REJECT`));
+  assert.ok(config.rules.includes(TAIL[0]));
+  assert.ok(runScript(withTun({ proxies: [], rules: ["MATCH,DIRECT"] }), { webrtc: "strict" }).config.rules.includes(`${CN_STUN},REJECT`));
   assert.deepEqual(config.dns.nameserver, googleECS(""));
   assert.ok(logs.some(([l]) => l === "warn"));
 });

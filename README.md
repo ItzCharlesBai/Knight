@@ -23,7 +23,7 @@
 | **DNS 跟着分流规则直连** | 只靠 `respect-rules` 时，如果订阅里有把 `8.8.8.8` 设成直连的规则，境外 DNS 也会跟着直连 | 脚本把境外 DNS 固定走订阅兜底规则（MATCH）指向的分组，国内 DNS 固定直连，不受其他分流规则影响。分组名每次从订阅里现读，不写死，订阅改名也会自动跟上；也因此不需要为 DNS 服务器加规则，你的分流规则保持原样 |
 | **规则匹配引起的解析** | `GEOIP` 这类规则要先把域名解析成 IP 才能匹配 | 国内域名以外的解析都经代理发出，并附带一个通用的国内 ECS 网段（不是你的 IP）。解析结果和国内 DNS 一致，`GEOIP,CN` 的判断和你订阅原来一样：未收录的国内网站、Windows 更新、Steam 下载这类在国内有节点的服务照样直连 |
 | **浏览器 / 系统自带的国内加密 DNS** | 浏览器「安全 DNS」或系统 DoH 设成阿里、腾讯、360 时会绕过 Clash | 只拦截这几家的 DoH / DoT 服务器，它们会自动回落到普通 DNS，由 TUN 劫持交给 Clash。内核自己的 DNS 查询不受影响 |
-| **WebRTC 泄露** | 浏览器用 UDP 去问 STUN 服务器你的公网 IP。系统代理模式下 UDP 根本不经过 Clash；就算开了 TUN，STUN 服务器在国内时也会被 `GEOIP,CN` 规则放行直连 | 要求开启 TUN；**发往国内的** STUN/TURN 请求（3478-3479、5349-5350、19302-19309 端口）改走订阅兜底规则指向的代理分组；其他的照你原来的规则走，国外通话软件的分流不受影响。订阅的兜底规则本身是直连时（白名单式订阅）没有代理出口，发往国内和未收录服务器的 STUN 改为拦截。订阅里明确写了直连的国外服务器（比如「微软服务」默认直连）仍会直连，要彻底防护就用 `webrtc: "reject"` |
+| **WebRTC 泄露** | 浏览器用 UDP 去问 STUN 服务器你的公网 IP。系统代理模式下 UDP 根本不经过 Clash，网页能直接拿到真实 IP | 要求开启 TUN。WebRTC 默认**跟着你订阅的分流走**：国外网站的 WebRTC 走代理，对方只能看到代理 IP；国内网站（B 站等）照常直连，不绕道代理——你本来就是直连访问它们，对方早已知道你的真实 IP，这不算泄露。想连「国外网站借国内 STUN 服务器探测真实 IP」这种少见情况也防住，可以用 `webrtc: "strict"`，代价是国内网站的 WebRTC 也会走代理 |
 | **节点不支持 UDP 时悄悄直连** | 很多机场节点没开 UDP。规则选中这样的节点时，内核会跳过它继续往下匹配，最后**直接直连**，STUN 和 QUIC 都会暴露真实 IP | 这种情况下的 STUN 和 QUIC（UDP 443）改为拦截：网页拿不到真实 IP，浏览器会自动改用 TCP 走代理。实测只用订阅时这三类请求都直连，加上脚本后都被拦截 |
 | **Windows 多网卡 / IPv6 DNS** | Windows 会同时向每块网卡的 DNS（包括路由器和 IPv6 DNS）发查询，这些查询**不进 TUN**，配置文件管不到 | 开启 TUN 的「严格路由」：它会挡住发往其他网卡的 DNS，并在 TUN 不接管 IPv6 时断开 IPv6，软件自动改用 IPv4。脚本检测到没开会在日志里提醒 |
 | **IPv6 泄露** | 代理只处理 IPv4 时，IPv6 流量可能直接出去 | DNS 不返回 IPv6 地址，配合严格路由；Verge 的 IPv6 保持关闭（见第三节） |
@@ -122,7 +122,7 @@
 
 2. 确认是扩展导致的话，恢复脚本，打开 Verge 的「连接」页，再打开那个软件，找到它的连接，看命中了哪条规则：
    - 命中 `DOMAIN,dns.alidns.com` / `IP-CIDR,223.5.5.5` 这类 `REJECT`：是加密 DNS 拦截规则，把 `blockDNSBypass` 设为 `false`。
-   - 命中 `AND,((DST-PORT,3478...`：是 WebRTC 规则，把 `webrtc` 设为 `"off"`，或用 `extraRules` 给这个软件放行。
+   - 命中 `AND,((DST-PORT,3478...`：是 `webrtc: "strict"` 的规则，改回默认的 `"follow"`，或用 `extraRules` 给这个软件放行。
    - 命中 `AND,((NETWORK,UDP),(DST-PORT,443)),REJECT`：当前节点不支持 UDP。浏览器会自动改走 TCP；别的软件需要 UDP 的话，换一个支持 UDP 的节点。
    - 打开很慢、或者境外网站全都打不开：境外域名的解析要经过订阅兜底规则指向的分组。节点挂了、这个分组选成了 DIRECT、或者 Verge 切到了直连模式，解析都会失败。换一个能用的节点即可。
 3. 如果你打开过默认关闭的优化，逐个关回去排查。
@@ -134,8 +134,8 @@
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `proxyGroup` | `""` | 境外 DNS 和 WebRTC 用哪个分组出站。留空 = 订阅兜底规则（MATCH）指向的分组，每次从订阅里现读、不写死；只有想手动指定时才填 |
-| `webrtc` | `"proxy"` | `proxy`：发往国内的 STUN 请求改走订阅兜底规则指向的代理分组，其他照原规则走；节点不支持 UDP、或兜底规则本身是直连时拦截。`reject`：拦截所有 STUN 请求（最彻底，网页音视频通话可能失败）。`off`：不处理 |
+| `proxyGroup` | `""` | 境外 DNS（以及 `webrtc: "strict"` 时的 WebRTC）用哪个分组出站。留空 = 订阅兜底规则（MATCH）指向的分组，每次从订阅里现读、不写死；只有想手动指定时才填 |
+| `webrtc` | `"follow"` | `follow`：跟着订阅的分流走，国内直连、国外走代理；只在节点不支持 UDP、内核准备悄悄直连时拦截 STUN。`strict`：发往国内的 STUN 也改走代理分组（旧写法 `proxy` 等同于它），国内网站的 WebRTC 会绕道代理。`reject`：拦截所有 STUN 请求（最彻底，网页音视频通话可能失败）。`off`：不处理 |
 | `udpLeakGuard` | `true` | 节点不支持 UDP、内核准备把 UDP 悄悄改成直连时，拦截其中的 QUIC（UDP 443），浏览器自动改用 TCP 走代理 |
 | `blockQUIC` | `false` | 拦截境外 QUIC，让浏览器回落到 TCP |
 | `dnsIPv6` | `false` | DNS 是否返回 IPv6 地址 |
@@ -158,8 +158,8 @@
 **网页语音 / 视频（Google Meet、Discord、Teams 网页版）卡顿或连不上？**
 WebRTC 走代理需要节点支持 UDP。换一个 UDP 好的节点（Hysteria2、TUIC 这类协议通常更合适）。如果实在不行，可以把 `webrtc` 改成 `"off"`，但这样就没有 WebRTC 防护了。
 
-**游戏、游戏主机、FaceTime 的 NAT 类型变差？**
-它们发往国内服务器的 STUN 请求会被送进代理。用 `extraRules` 给它们放行，例如：
+**开了 `webrtc: "strict"` 后，游戏、游戏主机、FaceTime 的 NAT 类型变差？**
+strict 模式会把它们发往国内服务器的 STUN 请求送进代理。改回默认的 `"follow"`，或用 `extraRules` 给它们放行，例如：
 
 ```js
 extraRules: [
@@ -167,9 +167,6 @@ extraRules: [
   "PROCESS-NAME,Game.exe,DIRECT",       // 某个游戏进程
 ],
 ```
-
-**国内的网页会议（自建 Jitsi、BigBlueButton 等）卡顿？**
-它们发往国内 TURN 服务器的音视频也会被送进代理，绕一圈再回国内。用 `extraRules` 让它们直连，例如 `"DOMAIN-SUFFIX,meeting.example.edu.cn,DIRECT"` 或 `"PROCESS-NAME,会议软件.exe,DIRECT"`。
 
 **`router.lan` 这种局域网主机名解析不了？**
 脚本里设置 `lanDNS: "192.168.1.1"`（换成你的路由器 IP）。如果只用 `merge.yaml`，把文件里 `nameserver-policy` 下面那两行注释取消掉。
