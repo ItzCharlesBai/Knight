@@ -37,6 +37,10 @@ const CONFIG = {
   // DNS 是否返回 IPv6 地址。关闭可避免 IPv6 流量绕开代理
   dnsIPv6: false,
 
+  // 国内域名直接返回真实 IP（由国内 DNS 解析），不用 Fake-IP 占位地址；国内网站和软件拿到的就是真实地址。
+  // 其余域名仍用 Fake-IP，防泄露效果不变
+  realIPForCN: true,
+
   // 国内域名以外的域名用 Google DoH（按订阅的分流规则经代理发出）解析时附带的 ECS 网段。
   // 填一个通用的国内网段（不是你的 IP），解析结果就和国内 DNS 一致，GEOIP 分流不会误判
   // （比如 Windows 更新、Steam 下载在国内有节点的服务照样直连）；查询仍经代理发出，运营商看不到。
@@ -286,7 +290,7 @@ function applyDNS(config, target) {
     // 黑名单模式：与订阅的列表合并；白名单 / rule 模式下列表含义不同，保持订阅原样
     dns["fake-ip-filter-mode"] = "blacklist";
     const merged = (Array.isArray(old["fake-ip-filter"]) ? old["fake-ip-filter"] : []).slice();
-    FAKE_IP_FILTER.forEach((d) => {
+    FAKE_IP_FILTER.concat(CONFIG.realIPForCN ? ["geosite:cn"] : []).forEach((d) => {
       if (merged.indexOf(d) < 0) merged.push(d);
     });
     dns["fake-ip-filter"] = merged;

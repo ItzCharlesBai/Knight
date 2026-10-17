@@ -87,6 +87,7 @@ dns:
     - "opencloud.wostore.cn"
     - "auth.wosms.cn"
     - "+.10099.com.cn"
+    - "geosite:cn"                   # 国内域名直接返回真实 IP，不用 Fake-IP
   default-nameserver:              # 仅用于解析 DoH 服务器域名（下面都写的 IP，基本用不到）
     - 223.5.5.5
     - 119.29.29.29

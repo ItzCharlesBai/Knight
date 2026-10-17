@@ -223,6 +223,8 @@ test("DNS：Fake-IP 过滤列表与订阅合并；白名单 / rule 模式保持�
   assert.equal(merged["fake-ip-filter"][0], "+.corp.example");
   assert.equal(merged["fake-ip-filter"].filter((d) => d === "+.lan").length, 1);
   assert.ok(merged["fake-ip-filter"].includes("+.msftconnecttest.com"));
+  assert.equal(merged["fake-ip-filter"].at(-1), "geosite:cn"); // 国内域名用真实 IP
+  assert.ok(!runScript(withTun(base), { realIPForCN: false }).config.dns["fake-ip-filter"].includes("geosite:cn"));
   outputs["fake-ip-merge"] = runScript(withTun(base)).config;
 
   for (const mode of ["whitelist", "rule"]) {
