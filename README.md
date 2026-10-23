@@ -1,10 +1,10 @@
 # Knight · Clash Verge Rev 防泄露与代理优化
 
-给 [Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev)（mihomo 内核）用的两个扩展文件，作用是防 **DNS 泄露**、防 **WebRTC 泄露**，并顺带做一些代理优化。
+给 [Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev)（mihomo 内核）用的两个扩展文件，作用是防 **DNS 泄露**、防 **WebRTC 泄露**、防 **IPv6 泄露**，并顺带做一些代理优化。
 
 | 文件 | 放在哪 | 作用 |
 | --- | --- | --- |
-| [`clash-verge-rev/script.js`](clash-verge-rev/script.js) | 订阅 → **全局扩展脚本** | 全部功能：防 DNS / WebRTC 泄露，以及可选的优化 |
+| [`clash-verge-rev/script.js`](clash-verge-rev/script.js) | 订阅 → **全局扩展脚本** | 全部功能：防 DNS / WebRTC / IPv6 泄露，以及可选的优化 |
 | [`clash-verge-rev/merge.yaml`](clash-verge-rev/merge.yaml) | 订阅 → **全局扩展覆写配置** | 只有 DNS 和性能参数（不含规则） |
 
 **只装 `script.js` 就够了，推荐只用它。** 脚本会在订阅原有的 DNS 设置上叠加；Merge 只能整体替换，还没办法把规则插到最前面，所以 WebRTC 防护只能靠脚本。
@@ -26,7 +26,8 @@
 | **WebRTC 泄露** | 浏览器用 UDP 去问 STUN 服务器你的公网 IP。系统代理模式下 UDP 根本不经过 Clash，网页能直接拿到真实 IP | 要求开启 TUN。WebRTC 默认**跟着你订阅的分流走**：国外网站的 WebRTC 走代理，对方只能看到代理 IP；国内网站（B 站等）照常直连，不绕道代理——你本来就是直连访问它们，对方早已知道你的真实 IP，这不算泄露。想连「国外网站借国内 STUN 服务器探测真实 IP」这种少见情况也防住，可以用 `webrtc: "strict"`，代价是国内网站的 WebRTC 也会走代理 |
 | **节点不支持 UDP 时悄悄直连** | 很多机场节点没开 UDP。规则选中这样的节点时，内核会跳过它继续往下匹配，最后**直接直连**，STUN 和 QUIC 都会暴露真实 IP | 这种情况下的 STUN 和 QUIC（UDP 443）改为拦截：网页拿不到真实 IP，浏览器会自动改用 TCP 走代理。实测只用订阅时这三类请求都直连，加上脚本后都被拦截 |
 | **Windows 多网卡 / IPv6 DNS** | Windows 会同时向每块网卡的 DNS（包括路由器和 IPv6 DNS）发查询，这些查询**不进 TUN**，配置文件管不到 | 开启 TUN 的「严格路由」：它会挡住发往其他网卡的 DNS，并在 TUN 不接管 IPv6 时断开 IPv6，软件自动改用 IPv4。脚本检测到没开会在日志里提醒 |
-| **IPv6 泄露** | 代理只处理 IPv4 时，IPv6 流量可能直接出去 | DNS 不返回 IPv6 地址，配合严格路由；Verge 的 IPv6 保持关闭（见第三节） |
+| **IPv6 泄露** | IPv6 流量不进 TUN 就会绕过代理直接出去；境外域名解析出 IPv6 地址时，还要求节点支持 IPv6 | **不用关 IPv6。** Verge 的 IPv6 开着（默认）时，TUN 把 IPv6 一并接管，Windows / macOS / Linux 上都不会绕过，直接用 IPv6 地址的连接也按你的分流走。DNS 只给国内域名返回 IPv6 地址，国内网站照常走 IPv6 直连；境外域名只返回 IPv4，照常走代理，节点不支持 IPv6 也没关系；机场节点也照旧用 IPv4 连接。Verge 里关掉 IPv6 时 DNS 一律只返回 IPv4：Windows / Linux 靠严格路由断开 IPv6，macOS 拦不住，脚本会提醒 |
+| **WebRTC 读到网卡的 IPv6 地址** | 网卡有公网 IPv6 时，浏览器会把本机地址写进 WebRTC 的候选地址，网页脚本直接就能读到，不经过网络，TUN 管不到。只有给过摄像头 / 麦克风权限的网站看得到，其他网站只看到一串 `.local` 随机名字 | 在浏览器里限制，见第四节。Verge 的 IPv6 开着时这样设置最有效 |
 
 ### 优化项
 
@@ -72,7 +73,7 @@
 | --- | --- | --- |
 | 设置 → 系统设置 → **虚拟网卡模式** | **开启** | WebRTC 这类 UDP 流量只有在 TUN 模式下才会经过 Clash |
 | 「虚拟网卡模式」文字右边的**齿轮图标**（不是开关，点开是一个叫「虚拟网卡模式」的窗口） | **严格路由：开**，改完点「保存」；DNS 劫持：`any:53`（默认值，TCP 和 UDP 都会劫持）；TUN 模式堆栈：Mixed 或 gVisor | 不开严格路由时，Windows 发给路由器和 IPv6 DNS 的查询会绕过 TUN，这是开了本方案后**最常见的残留 DNS 泄露**。如果 WSL、虚拟机或其他 VPN 因此出问题，再关掉它 |
-| 设置 → Clash 设置 → **IPv6** | **关闭**（Verge 默认） | 很多机场节点不支持 IPv6。开启后 TUN 会接管 IPv6，直接用 IPv6 地址连接的软件就会失败。关闭并配合严格路由，IPv6 也不会泄露 |
+| 设置 → Clash 设置 → **IPv6** | **开启**（Verge 2.3 起默认开启） | TUN 会一并接管 IPv6，任何系统上 IPv6 都不会绕过代理。脚本让境外域名只用 IPv4，不要求节点支持 IPv6；国内网站可以走 IPv6 直连。关掉也不会泄露（Windows / Linux 要开严格路由），但 macOS 上 IPv6 会绕过代理 |
 | 设置 → Clash 设置 → **DNS 覆写** | **关闭** | 开着的话，Verge 会用自己的 DNS 设置盖掉本方案 |
 | 设置 → Clash 设置 → 统一延迟 | 开启（可选） | 测速结果更准 |
 
@@ -89,6 +90,9 @@
 - **只能用系统代理、开不了 TUN 时**，Clash 管不到 WebRTC，只能在浏览器里限制：
   - Chrome / Edge：安装 Google 官方扩展「WebRTC Network Limiter」，选择 *Use my proxy server (if present)*
   - Firefox：在 `about:config` 中设置 `media.peerconnection.ice.proxy_only_if_behind_proxy = true` 和 `media.peerconnection.ice.default_address_only = true`；想彻底关掉 WebRTC 就设 `media.peerconnection.enabled = false`
+- **网卡有公网 IPv6 时**（开着 TUN 也一样），给过摄像头 / 麦克风权限的网站能通过 WebRTC 读到本机的 IPv6 地址。让浏览器只用默认网卡就能防住：开着 TUN 时默认网卡就是 TUN，网页只能看到 TUN 的内部地址（Verge 的 IPv6 要开着，否则 IPv6 的默认网卡还是物理网卡）。
+  - Chrome / Edge：安装 Google 官方扩展「WebRTC Network Limiter」，选只使用默认公网接口的那一项（*default public interface only*）
+  - Firefox：在 `about:config` 中设置 `media.peerconnection.ice.default_address_only = true`
 
 ---
 
@@ -99,13 +103,14 @@
 | <https://browserleaks.com/webrtc> | Public IP 是节点的 IP 或者为空，**不能出现你的真实 IP** |
 | <https://browserleaks.com/dns> 或 <https://www.dnsleaktest.com>（Extended test） | 只有 Cloudflare、Google 或节点所在机房的 DNS，**不能出现国内运营商** |
 | <https://ipleak.net> | 综合检查，IP、DNS、WebRTC 都不是你的真实信息 |
+| <https://test.ipw.cn>（国内 IPv6 测试） | Verge 的 IPv6 开着、网络有 IPv6 时显示你的 IPv6 地址：国内网站走 IPv6 直连正常 |
 
 > browserleaks 的 DNS 页面可能会在 Google 那一行显示 ECS 为 `223.5.5.0/24`（中国）。这是脚本为了让分流判断准确而附带的通用国内网段，不是你的 IP，查询本身也经过代理。不想看到它就把 `dnsECS` 设为 `""`，代价是没收录的国内网站可能被判成境外、改走代理。
 
 ### 测试仍然看到国内 DNS？逐项排查
 
 1. **严格路由没开**（Windows 上最常见）：设置 → 系统设置 →「虚拟网卡模式」文字右边的齿轮图标 → 严格路由，打开后点「保存」再重新测试。设置页没有这一项的旧版本，脚本会自动打开它。
-2. **IPv6 DNS 绕过**：如果测出的国内 DNS 是 IPv6 地址（`240e:`、`2408:`、`2409:` 开头），确认严格路由已开。仍然有的话，可以在系统网卡设置里关掉 IPv6。
+2. **IPv6 DNS 绕过**：如果测出的国内 DNS 是 IPv6 地址（`240e:`、`2408:`、`2409:` 开头），确认 Verge 的 IPv6 开着（TUN 才会接管 IPv6 的 DNS 查询）、严格路由也开着。
 3. **TUN 没开或没生效**：脚本日志里有 `[防泄露] 未开启 TUN` 的提示就说明没开。
 4. **浏览器安全 DNS 还开着**：按第四节关掉。脚本已经拦截了国内 DoH，但浏览器如果用的是「自定义」严格模式，被拦截后可能打不开网页，关掉即可。
 5. **其他 VPN / 加速器同时在运行**：它们可能自己接管 DNS，先退出再测试。
@@ -125,6 +130,7 @@
    - 命中 `DOMAIN,dns.alidns.com` / `IP-CIDR,223.5.5.5` 这类 `REJECT`：是加密 DNS 拦截规则，把 `blockDNSBypass` 设为 `false`。
    - 命中 `AND,((DST-PORT,3478...`：是 `webrtc: "strict"` 的规则，改回默认的 `"follow"`，或用 `extraRules` 给这个软件放行。
    - 命中 `AND,((NETWORK,UDP),(DST-PORT,443)),REJECT`：当前节点不支持 UDP。浏览器会自动改走 TCP；别的软件需要 UDP 的话，换一个支持 UDP 的节点。
+   - 国内网站打不开或很慢，而且是开了 Verge 的 IPv6 之后才出现的：你的网络分到了 IPv6 地址但 IPv6 不通。把 `dnsIPv6` 改成 `false`，国内网站改回只用 IPv4；IPv6 仍由 TUN 接管，不会泄露。
    - 打开很慢、或者境外网站全都打不开：境外域名的解析要经过订阅兜底规则指向的分组。节点挂了、这个分组选成了 DIRECT、或者 Verge 切到了直连模式，解析都会失败。换一个能用的节点即可。
 3. 如果你打开过默认关闭的优化，逐个关回去排查。
 4. 还是不行，把软件名和「连接」页 / 「日志」页里相关的几行发给我。
@@ -139,7 +145,7 @@
 | `webrtc` | `"follow"` | `follow`：跟着订阅的分流走，国内直连、国外走代理；只在节点不支持 UDP、内核准备悄悄直连时拦截 STUN。`strict`：发往国内的 STUN 也改走代理分组（旧写法 `proxy` 等同于它），国内网站的 WebRTC 会绕道代理。`reject`：拦截所有 STUN 请求（最彻底，网页音视频通话可能失败）。`off`：不处理 |
 | `udpLeakGuard` | `true` | 节点不支持 UDP、内核准备把 UDP 悄悄改成直连时，拦截其中的 QUIC（UDP 443），浏览器自动改用 TCP 走代理 |
 | `blockQUIC` | `false` | 拦截境外 QUIC，让浏览器回落到 TCP |
-| `dnsIPv6` | `false` | DNS 是否返回 IPv6 地址 |
+| `dnsIPv6` | `"cn"` | DNS 返回 IPv6 地址的范围。`"cn"`：只有国内域名返回 IPv6 地址，国内网站可走 IPv6 直连；境外域名、系统服务和节点域名只用 IPv4，走代理不要求节点支持 IPv6，节点照旧用 IPv4 连接。`false`：所有域名只返回 IPv4。`true`：所有域名都返回 IPv6 地址，境外的 Fake-IP 也分配 IPv6。Verge 的 IPv6 关闭时一律按 `false` 处理 |
 | `realIPForCN` | `true` | 国内域名（geosite:cn）直接返回国内 DNS 解析出的真实 IP，不用 Fake-IP；关掉则所有域名都用 Fake-IP |
 | `dnsECS` | `"223.5.5.0/24"` | 国内域名以外的域名用 Google DoH 解析时附带的国内 ECS 网段（不是你的 IP），让 `GEOIP` 分流和用国内 DNS 时一致。填 `""` 关闭，改用 Cloudflare + Google 不带 ECS（部分本该直连的下载会改走代理） |
 | `blockDNSBypass` | `true` | 拦截浏览器 / 系统里设置的阿里、腾讯、360 的 DoH / DoT 服务器，让它们回落到被 Clash 接管的普通 DNS |
@@ -196,4 +202,4 @@ npm test
 MIHOMO_BIN=/path/to/mihomo GEODATA_DIR=/path/to/geodata npm test
 ```
 
-修改 `merge.yaml` 或 `script.js` 中任意一个的 DNS / 性能参数时，另一个也要同步改。测试会检查两边是否一致。
+修改 `merge.yaml` 或 `script.js` 中任意一个的 DNS / 性能参数时，另一个也要同步改。测试会检查两边是否一致（IPv6 除外：Merge 读不到 Verge 的 IPv6 开关，统一只用 IPv4）。

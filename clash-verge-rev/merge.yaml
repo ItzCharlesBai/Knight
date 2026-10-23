@@ -11,7 +11,7 @@
 #   · Merge 无法往规则列表头部插入规则，WebRTC / 加密 DNS 拦截规则由配套的 script.js 完成
 #   · Merge 只能整体替换 dns 子键：订阅自带的 fake-ip-filter / nameserver-policy 会被下面的覆盖；
 #     script.js 会与订阅原有的设置合并，兼容性更好，推荐只用脚本
-#   · 本文件的取值与 script.js 保持一致，两者可以同时启用
+#   · 本文件的取值与 script.js 保持一致（IPv6 除外，见 dns.ipv6），两者可以同时启用
 # =====================================================================
 
 # ---------------------------- 性能 ----------------------------
@@ -36,7 +36,8 @@ profile:
 # 运营商只能看到国内域名的查询，境外查询的内容和你的真实 IP 都不会暴露。
 dns:
   enable: true
-  ipv6: false                      # 不返回 AAAA，防止 IPv6 流量绕开代理
+  ipv6: false                      # 不返回 IPv6 地址。Merge 读不到 Verge 的 IPv6 开关，只能统一用 IPv4；
+                                   # 想让国内网站走 IPv6 请用 script.js（它会按开关自动处理）
   prefer-h3: false
   respect-rules: true              # 未固定出站的 DNS 查询按分流规则出站（境外 DoH 走代理）
   cache-algorithm: arc

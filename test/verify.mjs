@@ -60,9 +60,9 @@ function runScript(config, overrides = {}) {
   return { config: JSON.parse(result), logs };
 }
 
-// Verge 在扩展之前把 GUI 的 TUN 设置写进 tun
-const withTun = (config, enable = true, extra = { "strict-route": true }) =>
-  Object.assign(clone(config), { tun: Object.assign({ enable }, enable ? extra : {}) });
+// Verge 在扩展之前把 GUI 的 TUN 设置和 IPv6 开关（默认开启）写进配置
+const withTun = (config, enable = true, extra = { "strict-route": true }, ipv6 = true) =>
+  Object.assign(clone(config), { ipv6, tun: Object.assign({ enable }, enable ? extra : {}) });
 
 const builtin = new Set(["DIRECT", "REJECT", "REJECT-DROP", "PASS", "COMPATIBLE"]);
 function checkReferences(config) {
@@ -100,6 +100,7 @@ const BYPASS = [
   "IP-CIDR,120.53.53.53/32,REJECT,no-resolve",
   "IP-CIDR6,2400:3200::1/128,REJECT,no-resolve",
   "IP-CIDR6,2400:3200:baba::1/128,REJECT,no-resolve",
+  "IP-CIDR6,2402:4e00::/128,REJECT,no-resolve",
 ];
 const STUN = "3478-3479/5349-5350/19302-19309";
 const CN_STUN = `AND,((DST-PORT,${STUN}),(OR,((GEOSITE,cn),(GEOIP,CN,no-resolve))))`;
@@ -110,7 +111,11 @@ const DOMESTIC = ["https://223.5.5.5/dns-query#DIRECT", "https://1.12.12.12/dns-
 const SYSTEM =
   "+.msftconnecttest.com,+.msftncsi.com,time.windows.com,time.apple.com,time-ios.apple.com,time.asia.apple.com," +
   "+.pool.ntp.org,+.ntp.org.cn,+.srv.nintendo.net,+.stun.playstation.net,xbox.*.microsoft.com,+.xboxlive.com";
-const googleECS = (g) => [`https://8.8.8.8/dns-query#${g ? g + "&" : ""}${ECS}`, `https://8.8.4.4/dns-query#${g ? g + "&" : ""}${ECS}`];
+// 默认（Verge 开着 IPv6、dnsIPv6 "cn"）境外 DNS 不返回 IPv6 地址
+const V4ONLY = "&disable-ipv6=true";
+// 系统服务和节点域名同样只用 IPv4；国内域名和直连时的重新解析不限制
+const DOMESTIC4 = DOMESTIC.map((s) => s + V4ONLY);
+const googleECS = (g, v4only = true) => ["8.8.8.8", "8.8.4.4"].map((ip) => `https://${ip}/dns-query#${g ? g + "&" : ""}${ECS}${v4only ? V4ONLY : ""}`);
 
 const outputs = {};
 const tests = [];
@@ -176,16 +181,16 @@ test("DNS：只替换上游；国内外判断与国内 DNS 一致；redir-host �
   assert.equal(dns["enhanced-mode"], "fake-ip");
   assert.ok(logs.some(([l, m]) => l === "log" && /redir-host/.test(m)));
   assert.equal(dns["respect-rules"], true);
-  assert.equal(dns.ipv6, false);
+  assert.equal(dns.ipv6, true); // Verge 开着 IPv6：国内域名可返回 IPv6 地址
   assert.equal(dns.listen, "0.0.0.0:1053");
   assert.equal(dns.fallback, undefined);
   assert.equal(dns["fallback-filter"], undefined);
   assert.deepEqual(dns.nameserver, googleECS("🐟 漏网之鱼"));
-  assert.deepEqual(dns["proxy-server-nameserver"], DOMESTIC);
+  assert.deepEqual(dns["proxy-server-nameserver"], DOMESTIC4);
   assert.deepEqual(dns["direct-nameserver"], DOMESTIC);
   assert.deepEqual(dns["nameserver-policy"], {
     "+.example-airport.com": ["114.114.114.114#DIRECT"], // 订阅针对具体域名的条目：最先匹配，固定直连
-    [SYSTEM]: DOMESTIC,
+    [SYSTEM]: DOMESTIC4,
     "geosite:cn,private": DOMESTIC,
     "geosite:geolocation-!cn": googleECS("🐟 漏网之鱼"),
   });
@@ -212,7 +217,7 @@ test("DNS：订阅解析条目的顺序与直连固定；特殊写法不动", ()
   assert.deepEqual(policy["+.corp.example"], ["10.0.0.53#DIRECT", "tls://10.0.0.54#内网"]);
   assert.deepEqual(policy["+.panel.example"], ["https://223.5.5.5/dns-query#DIRECT"]);
   assert.deepEqual(policy["+.box.example"], ["dhcp://en0"]);
-  assert.deepEqual(config.dns["proxy-server-nameserver"], ["https://doh.example-airport.com/dns-query"]); // 订阅自己指定的沿用
+  assert.deepEqual(config.dns["proxy-server-nameserver"], ["https://doh.example-airport.com/dns-query#disable-ipv6=true"]); // 订阅自己指定的沿用，只是不取 IPv6 地址
   outputs["policy-order"] = config;
 });
 
@@ -243,7 +248,7 @@ test("DNS：Fake-IP 过滤列表与订阅合并；白名单 / rule 模式保持�
 
 test("DNS：关闭 ECS 时改用 Cloudflare/Google", () => {
   const { config } = runScript(withTun(fixture("subscription.yaml")), { dnsECS: "" });
-  const plain = ["https://1.1.1.1/dns-query#🐟 漏网之鱼", "https://8.8.8.8/dns-query#🐟 漏网之鱼"];
+  const plain = ["https://1.1.1.1/dns-query#🐟 漏网之鱼" + V4ONLY, "https://8.8.8.8/dns-query#🐟 漏网之鱼" + V4ONLY];
   assert.deepEqual(config.dns.nameserver, plain);
   assert.deepEqual(config.dns["nameserver-policy"]["geosite:geolocation-!cn"], plain);
 });
@@ -261,7 +266,8 @@ test("merge.yaml 与 script.js 写入的 DNS 值一致（脚本额外固定代�
   const sub = fixture("subscription.yaml");
   sub.dns["enhanced-mode"] = "fake-ip";
   const merged = useMerge(MERGE, sub);
-  const { config: scripted } = runScript(withTun(sub));
+  // Merge 读不到 IPv6 开关，统一只用 IPv4，对应脚本在 Verge 关闭 IPv6 时的输出
+  const { config: scripted } = runScript(withTun(sub, true, { "strict-route": true }, false));
   const dropGroup = (v) => JSON.parse(JSON.stringify(v).split("#🐟 漏网之鱼&").join("#").split("#🐟 漏网之鱼\"").join("\""));
   for (const key of Object.keys(MERGE.dns)) {
     if (key === "fallback") continue;
@@ -365,6 +371,64 @@ test("未开启 TUN / 严格路由时给出提示", () => {
   const unmanaged = runScript(withTun(fixture("subscription.yaml"), true, {}));
   assert.equal(unmanaged.config.tun["strict-route"], true);
   assert.ok(!unmanaged.logs.some(([l]) => l === "warn"));
+
+  // Verge 关闭 IPv6：Windows（Verge 会写 external-controller-pipe）开着严格路由时 IPv6 已被断开，不提示；
+  // 其他系统提示 macOS 会绕过；严格路由也没开时在严格路由的提示里说明
+  const v6off = (extra, keys = {}) =>
+    runScript(Object.assign(withTun(fixture("subscription.yaml"), true, extra, false), keys)).logs.filter(([l]) => l === "warn").map(([, m]) => m);
+  const pipe = { "external-controller-pipe": "\\\\.\\pipe\\verge-mihomo" };
+  assert.ok(v6off({ "strict-route": true }).some((m) => /macOS/.test(m)));
+  assert.deepEqual(v6off({ "strict-route": true }, pipe), []);
+  const both = v6off({ "strict-route": false }, pipe);
+  assert.equal(both.length, 1);
+  assert.match(both[0], /严格路由.*IPv6 流量会直接绕过代理/);
+});
+
+test("IPv6：跟随 Verge 的开关；默认只有国内域名返回 IPv6 地址，境外只用 IPv4", () => {
+  const sub = fixture("subscription.yaml");
+  sub.dns = { enable: true, "enhanced-mode": "fake-ip", "fake-ip-range6": "2001:2::0/64" }; // Verge 开着 IPv6 时会补上 IPv6 段
+  const on = runScript(withTun(sub)).config;
+  assert.equal(on.dns.ipv6, true);
+  assert.equal(on.dns["fake-ip-range6"], undefined); // 境外域名的 Fake-IP 只分配 IPv4
+  assert.deepEqual(on.dns.nameserver, googleECS("🐟 漏网之鱼"));
+  assert.deepEqual(on.dns["nameserver-policy"]["geosite:geolocation-!cn"], googleECS("🐟 漏网之鱼"));
+  assert.deepEqual(on.dns["nameserver-policy"]["geosite:cn,private"], DOMESTIC); // 国内域名不限制 IPv6
+  assert.deepEqual(on.dns["direct-nameserver"], DOMESTIC);
+  assert.deepEqual(on.dns["nameserver-policy"][SYSTEM], DOMESTIC4); // 系统服务、节点域名只用 IPv4，节点照旧用 IPv4 连接
+  assert.deepEqual(on.dns["proxy-server-nameserver"], DOMESTIC4);
+
+  // 同时启用 merge.yaml（它写入了同名的系统服务条目和节点 DNS）时结果一样；重复运行不叠加参数
+  const withMerge = runScript(withTun(useMerge(MERGE, sub))).config.dns;
+  for (const key of ["nameserver", "proxy-server-nameserver", "direct-nameserver", "nameserver-policy", "ipv6"]) assert.deepEqual(withMerge[key], on.dns[key], key);
+  assert.deepEqual(runScript(on).config.dns, on.dns);
+  checkReferences(on);
+  outputs["ipv6-cn"] = on;
+
+  // 订阅没写 ipv6（非 Verge 环境）按内核默认的开启处理
+  const unset = withTun(sub);
+  delete unset.ipv6;
+  assert.deepEqual(runScript(unset).config.dns, on.dns);
+
+  // Verge 关闭 IPv6：一律不返回 IPv6 地址，dnsIPv6 不起作用
+  for (const dnsIPv6 of ["cn", true, false]) {
+    const off = runScript(withTun(sub, true, { "strict-route": true }, false), { dnsIPv6 }).config.dns;
+    assert.equal(off.ipv6, false, String(dnsIPv6));
+    assert.equal(off["fake-ip-range6"], undefined);
+    assert.deepEqual(off.nameserver, googleECS("🐟 漏网之鱼", false));
+    assert.deepEqual(off["proxy-server-nameserver"], DOMESTIC);
+    assert.deepEqual(off["nameserver-policy"][SYSTEM], DOMESTIC);
+  }
+
+  const v4 = runScript(withTun(sub), { dnsIPv6: false }).config.dns;
+  assert.equal(v4.ipv6, false);
+  assert.equal(v4["fake-ip-range6"], undefined);
+  assert.deepEqual(v4.nameserver, googleECS("🐟 漏网之鱼", false));
+
+  const all = runScript(withTun(sub), { dnsIPv6: true }).config;
+  assert.equal(all.dns.ipv6, true);
+  assert.equal(all.dns["fake-ip-range6"], "2001:2::0/64");
+  assert.deepEqual(all.dns.nameserver, googleECS("🐟 漏网之鱼", false));
+  outputs["ipv6-all"] = all;
 });
 
 test("proxy-providers 订阅：不过滤代理集合节点，出口跟随兜底规则", () => {

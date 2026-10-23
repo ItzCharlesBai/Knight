@@ -1,13 +1,13 @@
 /**
  * Clash Verge Rev · 全局扩展脚本（Script）
- * 防 DNS 泄露 · 防 WebRTC 泄露 · 代理优化
+ * 防 DNS 泄露 · 防 WebRTC 泄露 · 防 IPv6 泄露 · 代理优化
  *
  * 内核：mihomo ≥ 1.19（Clash Verge Rev 自带）
  * 用法：订阅 → 全局扩展脚本 → 编辑文件 → 全选粘贴本文件 → 保存
  *       只想对某个订阅生效：右键该订阅 → 扩展脚本
- * 说明：可单独使用，也可与 merge.yaml 同时启用（两者的 DNS 参数一致）。
- *       WebRTC 防护依赖 TUN（虚拟网卡）模式，详见 README。
- * 原则：默认只做防 DNS / WebRTC 泄露，不改节点、不拦正常流量、不覆盖订阅原有的 DNS 兼容设置；
+ * 说明：可单独使用，也可与 merge.yaml 同时启用（两者的 DNS 参数一致，IPv6 部分由脚本按 Verge 的 IPv6 开关决定）。
+ *       WebRTC / IPv6 防护依赖 TUN（虚拟网卡）模式，详见 README。
+ * 原则：默认只做防 DNS / WebRTC / IPv6 泄露，不改节点、不拦正常流量、不覆盖订阅原有的 DNS 兼容设置；
  *       不写死任何分组名，出口一律跟随订阅自己的分流规则。其余优化默认关闭，需要时在下面手动打开。
  */
 
@@ -34,8 +34,13 @@ const CONFIG = {
   // 拦截境外 QUIC（UDP 443），让浏览器回落到 TCP
   blockQUIC: false,
 
-  // DNS 是否返回 IPv6 地址。关闭可避免 IPv6 流量绕开代理
-  dnsIPv6: false,
+  // DNS 返回 IPv6 地址的范围。Verge「设置 → Clash 设置 → IPv6」打开时 TUN 会一并接管 IPv6，不会绕过代理：
+  //   "cn"  只有国内域名返回 IPv6 地址，国内网站可走 IPv6 直连；境外域名、系统服务和节点域名只用 IPv4，
+  //         走代理不要求节点支持 IPv6，节点也照旧用 IPv4 连接（默认）
+  //   false 所有域名都只返回 IPv4
+  //   true  所有域名都返回 IPv6 地址，境外的 Fake-IP 也分配 IPv6
+  // Verge 的 IPv6 关闭时一律按 false 处理
+  dnsIPv6: "cn",
 
   // 国内域名直接返回真实 IP（由国内 DNS 解析），不用 Fake-IP 占位地址；国内网站和软件拿到的就是真实地址。
   // 其余域名仍用 Fake-IP，防泄露效果不变
@@ -99,6 +104,8 @@ const SYSTEM_DOMAINS =
   "+.msftconnecttest.com,+.msftncsi.com,time.windows.com,time.apple.com,time-ios.apple.com,time.asia.apple.com," +
   "+.pool.ntp.org,+.ntp.org.cn,+.srv.nintendo.net,+.stun.playstation.net,xbox.*.microsoft.com,+.xboxlive.com";
 const LAN_DOMAINS = "+.lan,+.local,+.localdomain,+.home.arpa";
+// 不能追加 # 参数的特殊 DNS 写法
+const SPECIAL_DNS = /^(system|dhcp:|rcode:|ts:|tailscale:|et:|easytier:)/i;
 // 仅用于解析 DoH 服务器自身的域名（上面都是 IP，基本用不到）
 const DNS_BOOTSTRAP = ["223.5.5.5", "119.29.29.29"];
 
@@ -116,6 +123,7 @@ const BYPASS_DNS_RULES = [
   "IP-CIDR,120.53.53.53/32,REJECT,no-resolve",
   "IP-CIDR6,2400:3200::1/128,REJECT,no-resolve",
   "IP-CIDR6,2400:3200:baba::1/128,REJECT,no-resolve",
+  "IP-CIDR6,2402:4e00::/128,REJECT,no-resolve",
 ];
 
 // STUN / TURN 常用端口：3478-3479 标准端口，5349-5350 TLS，19302-19309 Google
@@ -196,24 +204,36 @@ function main(config, profileName) {
   const rules = (Array.isArray(config.rules) ? config.rules : []).filter((r) => head.indexOf(r) < 0 && tail.indexOf(r) < 0);
   config.rules = head.concat(guardDirectMatch(rules, target), tail);
 
-  checkTun(config.tun);
+  checkTun(config);
   return config;
 }
 
-// Verge 在执行扩展前已写入设置页管理的 TUN 字段，脚本改这些字段会被设置页覆盖，只能提示。
+// Verge 在执行扩展前已写入设置页管理的 TUN 字段和 IPv6 开关，脚本改这些字段会被设置页覆盖，只能提示。
 // 设置页没有管理严格路由（tun 里没有这个键）时，脚本直接打开它
-function checkTun(tun) {
+function checkTun(config) {
+  const tun = config.tun;
   if (!tun || !tun.enable) {
     if (CONFIG.webrtc !== "off") console.warn("[防泄露] 未开启 TUN 模式：浏览器的 WebRTC(UDP) 流量不经过 Clash，请开启虚拟网卡模式");
     return;
   }
+  // IPv6 关闭时内核不给 TUN 分配 IPv6，IPv6 流量不进 TUN：Windows / Linux 靠严格路由把 IPv6 断开，macOS 没有这层拦截
+  const ipv6Off = config.ipv6 === false;
   if (!("strict-route" in tun)) {
     tun["strict-route"] = true;
     console.log("[防泄露] 设置页未管理严格路由，已由脚本开启");
   } else if (tun["strict-route"] !== true) {
     console.warn(
-      "[防泄露] 未开启「严格路由」：Windows 会绕过 TUN 直接向路由器 / IPv6 DNS 发查询，这是最常见的残留 DNS 泄露。" +
-        "开启位置：设置 → 系统设置 →「虚拟网卡模式」文字右边的齿轮图标 → 严格路由"
+      "[防泄露] 未开启「严格路由」：Windows 会绕过 TUN 直接向路由器 / IPv6 DNS 发查询，这是最常见的残留 DNS 泄露" +
+        (ipv6Off ? "；IPv6 也已关闭，IPv6 流量会直接绕过代理" : "") +
+        "。开启位置：设置 → 系统设置 →「虚拟网卡模式」文字右边的齿轮图标 → 严格路由"
+    );
+    return;
+  }
+  // 只有 Windows 版 Verge 会写 external-controller-pipe
+  if (ipv6Off && !("external-controller-pipe" in config)) {
+    console.warn(
+      "[防泄露] Verge 的 IPv6 已关闭，TUN 不接管 IPv6：macOS 上 IPv6 流量会绕过代理（Linux 开了严格路由可忽略）。" +
+        "建议打开 设置 → Clash 设置 → IPv6，脚本会让境外域名只用 IPv4，分流不变"
     );
   }
 }
@@ -241,9 +261,22 @@ function applyDNS(config, target) {
   if (target && !via.length) console.warn("[防泄露] 分组名 “" + target + "” 含 & % #，境外 DNS 改为按分流规则出站");
   const doh = (ip, params) => "https://" + ip + "/dns-query" + (params.length ? "#" + params.join("&") : "");
   const domestic = DNS_DOMESTIC_IPS.map((ip) => doh(ip, ["DIRECT"])).concat(DNS_DOMESTIC_UDP.map((ip) => ip + "#DIRECT"));
-  const foreign = CONFIG.dnsECS
-    ? DNS_ECS_IPS.map((ip) => doh(ip, via.concat(["ecs=" + CONFIG.dnsECS, "ecs-override=true"])))
-    : DNS_FOREIGN_IPS.map((ip) => doh(ip, via));
+  // IPv6 跟随 Verge 的 IPv6 开关（内核默认开启）。"cn" 时只有国内域名、局域网、订阅自己写的解析条目和直连时的重新解析返回 IPv6 地址；
+  // 境外域名、系统服务和节点域名的服务器加 disable-ipv6，只拿到 IPv4 地址，和关闭 IPv6 时一样
+  const ipv6 = config.ipv6 === false ? false : CONFIG.dnsIPv6;
+  const v4 = (list) =>
+    ipv6 !== "cn"
+      ? list
+      : list.map((server) =>
+          typeof server === "string" && !SPECIAL_DNS.test(server) && server.indexOf("disable-ipv6") < 0
+            ? server + (server.indexOf("#") < 0 ? "#" : "&") + "disable-ipv6=true"
+            : server
+        );
+  const foreign = v4(
+    CONFIG.dnsECS
+      ? DNS_ECS_IPS.map((ip) => doh(ip, via.concat(["ecs=" + CONFIG.dnsECS, "ecs-override=true"])))
+      : DNS_FOREIGN_IPS.map((ip) => doh(ip, via))
+  );
   const old = config.dns && typeof config.dns === "object" ? config.dns : {};
 
   // policy 按书写顺序匹配，第一个命中的生效：
@@ -256,9 +289,9 @@ function applyDNS(config, target) {
   };
   if (CONFIG.lanDNS) put(LAN_DOMAINS, [CONFIG.lanDNS + "#DIRECT"]);
   Object.keys(oldPolicy).forEach((key) => {
-    if (!/^(geosite|rule-set):/i.test(key)) put(key, pinDirect(oldPolicy[key]));
+    if (!/^(geosite|rule-set):/i.test(key) && key !== SYSTEM_DOMAINS) put(key, pinDirect(oldPolicy[key]));
   });
-  put(SYSTEM_DOMAINS, domestic.slice());
+  put(SYSTEM_DOMAINS, v4(domestic));
   put("geosite:cn,private", domestic.slice());
   put("geosite:geolocation-!cn", foreign.slice());
   Object.keys(oldPolicy).forEach((key) => put(key, pinDirect(oldPolicy[key])));
@@ -267,14 +300,14 @@ function applyDNS(config, target) {
   const oldPsn = old["proxy-server-nameserver"];
   const dns = Object.assign({}, old, {
     enable: true,
-    ipv6: CONFIG.dnsIPv6,
+    ipv6: !!ipv6,
     "prefer-h3": false,
     "respect-rules": true,
     "cache-algorithm": old["cache-algorithm"] || "arc",
     "enhanced-mode": "fake-ip",
     "default-nameserver": DNS_BOOTSTRAP.slice(),
     // 解析节点域名：订阅自己指定了就沿用
-    "proxy-server-nameserver": Array.isArray(oldPsn) && oldPsn.length ? oldPsn : domestic.slice(),
+    "proxy-server-nameserver": v4(Array.isArray(oldPsn) && oldPsn.length ? oldPsn : domestic),
     "direct-nameserver": domestic.slice(),
     nameserver: foreign.slice(),
     "nameserver-policy": policy,
@@ -295,7 +328,9 @@ function applyDNS(config, target) {
     });
     dns["fake-ip-filter"] = merged;
   }
-  if (CONFIG.dnsIPv6) dns["fake-ip-range6"] = old["fake-ip-range6"] || "2001:2::0/64";
+  // 境外域名的 Fake-IP 只分配 IPv4（Verge 开着 IPv6 时会自动补上 IPv6 段，这里按 dnsIPv6 决定去留）
+  if (ipv6 && ipv6 !== "cn") dns["fake-ip-range6"] = old["fake-ip-range6"] || "2001:2::0/64";
+  else delete dns["fake-ip-range6"];
   config.dns = dns;
 }
 
@@ -303,9 +338,7 @@ function applyDNS(config, target) {
 // 效果和原来一样。system / dhcp 这类特殊写法不能加
 function pinDirect(value) {
   return (Array.isArray(value) ? value : [value]).map((server) =>
-    typeof server === "string" && server.indexOf("#") < 0 && !/^(system|dhcp:|rcode:|ts:|tailscale:|et:|easytier:)/i.test(server)
-      ? server + "#DIRECT"
-      : server
+    typeof server === "string" && server.indexOf("#") < 0 && !SPECIAL_DNS.test(server) ? server + "#DIRECT" : server
   );
 }
 
