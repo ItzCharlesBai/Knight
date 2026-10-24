@@ -26,7 +26,7 @@
 | **WebRTC 泄露** | 浏览器用 UDP 去问 STUN 服务器你的公网 IP。系统代理模式下 UDP 根本不经过 Clash，网页能直接拿到真实 IP | 要求开启 TUN。WebRTC 默认**跟着你订阅的分流走**：国外网站的 WebRTC 走代理，对方只能看到代理 IP；国内网站（B 站等）照常直连，不绕道代理——你本来就是直连访问它们，对方早已知道你的真实 IP，这不算泄露。想连「国外网站借国内 STUN 服务器探测真实 IP」这种少见情况也防住，可以用 `webrtc: "strict"`，代价是国内网站的 WebRTC 也会走代理 |
 | **节点不支持 UDP 时悄悄直连** | 很多机场节点没开 UDP。规则选中这样的节点时，内核会跳过它继续往下匹配，最后**直接直连**，STUN 和 QUIC 都会暴露真实 IP | 这种情况下的 STUN 和 QUIC（UDP 443）改为拦截：网页拿不到真实 IP，浏览器会自动改用 TCP 走代理。实测只用订阅时这三类请求都直连，加上脚本后都被拦截 |
 | **Windows 多网卡 / IPv6 DNS** | Windows 会同时向每块网卡的 DNS（包括路由器和 IPv6 DNS）发查询，这些查询**不进 TUN**，配置文件管不到 | 开启 TUN 的「严格路由」：它会挡住发往其他网卡的 DNS，并在 TUN 不接管 IPv6 时断开 IPv6，软件自动改用 IPv4。脚本检测到没开会在日志里提醒 |
-| **IPv6 泄露** | IPv6 流量不进 TUN 就会绕过代理直接出去；境外域名解析出 IPv6 地址时，还要求节点支持 IPv6 | **不用关 IPv6。** Verge 的 IPv6 开着（默认）时，TUN 把 IPv6 一并接管，Windows / macOS / Linux 上都不会绕过，直接用 IPv6 地址的连接也按你的分流走。DNS 只给国内域名返回 IPv6 地址，国内网站照常走 IPv6 直连；境外域名只返回 IPv4，照常走代理，节点不支持 IPv6 也没关系；机场节点也照旧用 IPv4 连接。Verge 里关掉 IPv6 时 DNS 一律只返回 IPv4：Windows / Linux 靠严格路由断开 IPv6，macOS 拦不住，脚本会提醒 |
+| **IPv6 泄露** | IPv6 流量不进 TUN 就会绕过代理直接出去；境外域名解析出 IPv6 地址时，还要求节点支持 IPv6 | **不用关 IPv6。** Verge 的 IPv6 开着（默认）时，TUN 把 IPv6 一并接管，Windows / macOS / Linux 上都不会绕过，直接用 IPv6 地址的连接也按你的分流走。DNS 只给国内域名返回 IPv6 地址，国内网站照常走 IPv6 直连；境外域名只返回 IPv4，照常走代理，节点不支持 IPv6 也没关系；节点自己的域名照常解析 IPv6，只有 IPv6 地址的节点（比如家宽）也能连上。Verge 里关掉 IPv6 时 DNS 一律只返回 IPv4：Windows / Linux 靠严格路由断开 IPv6，macOS 拦不住，脚本会提醒 |
 | **WebRTC 读到网卡的 IPv6 地址** | 网卡有公网 IPv6 时，浏览器会把本机地址写进 WebRTC 的候选地址，网页脚本直接就能读到，不经过网络，TUN 管不到。只有给过摄像头 / 麦克风权限的网站看得到，其他网站只看到一串 `.local` 随机名字 | 在浏览器里限制，见第四节。Verge 的 IPv6 开着时这样设置最有效 |
 
 ### 优化项
@@ -145,7 +145,7 @@
 | `webrtc` | `"follow"` | `follow`：跟着订阅的分流走，国内直连、国外走代理；只在节点不支持 UDP、内核准备悄悄直连时拦截 STUN。`strict`：发往国内的 STUN 也改走代理分组（旧写法 `proxy` 等同于它），国内网站的 WebRTC 会绕道代理。`reject`：拦截所有 STUN 请求（最彻底，网页音视频通话可能失败）。`off`：不处理 |
 | `udpLeakGuard` | `true` | 节点不支持 UDP、内核准备把 UDP 悄悄改成直连时，拦截其中的 QUIC（UDP 443），浏览器自动改用 TCP 走代理 |
 | `blockQUIC` | `false` | 拦截境外 QUIC，让浏览器回落到 TCP |
-| `dnsIPv6` | `"cn"` | DNS 返回 IPv6 地址的范围。`"cn"`：只有国内域名返回 IPv6 地址，国内网站可走 IPv6 直连；境外域名、系统服务和节点域名只用 IPv4，走代理不要求节点支持 IPv6，节点照旧用 IPv4 连接。`false`：所有域名只返回 IPv4。`true`：所有域名都返回 IPv6 地址，境外的 Fake-IP 也分配 IPv6。Verge 的 IPv6 关闭时一律按 `false` 处理 |
+| `dnsIPv6` | `"cn"` | DNS 返回 IPv6 地址的范围。`"cn"`：只有国内域名返回 IPv6 地址，国内网站可走 IPv6 直连；境外域名和系统服务只用 IPv4，走代理不要求节点支持 IPv6；节点自己的域名照常解析 IPv6，只有 IPv6 地址的节点也能连上。`false`：所有域名只返回 IPv4。`true`：所有域名都返回 IPv6 地址，境外的 Fake-IP 也分配 IPv6。Verge 的 IPv6 关闭时一律按 `false` 处理 |
 | `realIPForCN` | `true` | 国内域名（geosite:cn）直接返回国内 DNS 解析出的真实 IP，不用 Fake-IP；关掉则所有域名都用 Fake-IP |
 | `dnsECS` | `"223.5.5.0/24"` | 国内域名以外的域名用 Google DoH 解析时附带的国内 ECS 网段（不是你的 IP），让 `GEOIP` 分流和用国内 DNS 时一致。填 `""` 关闭，改用 Cloudflare + Google 不带 ECS（部分本该直连的下载会改走代理） |
 | `blockDNSBypass` | `true` | 拦截浏览器 / 系统里设置的阿里、腾讯、360 的 DoH / DoT 服务器，让它们回落到被 Clash 接管的普通 DNS |

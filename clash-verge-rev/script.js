@@ -35,8 +35,8 @@ const CONFIG = {
   blockQUIC: false,
 
   // DNS 返回 IPv6 地址的范围。Verge「设置 → Clash 设置 → IPv6」打开时 TUN 会一并接管 IPv6，不会绕过代理：
-  //   "cn"  只有国内域名返回 IPv6 地址，国内网站可走 IPv6 直连；境外域名、系统服务和节点域名只用 IPv4，
-  //         走代理不要求节点支持 IPv6，节点也照旧用 IPv4 连接（默认）
+  //   "cn"  只有国内域名返回 IPv6 地址，国内网站可走 IPv6 直连；境外域名和系统服务只用 IPv4，走代理不要求节点支持 IPv6。
+  //         节点域名照常解析 IPv6，只有 IPv6 地址的节点（如家宽）也能连上（默认）
   //   false 所有域名都只返回 IPv4
   //   true  所有域名都返回 IPv6 地址，境外的 Fake-IP 也分配 IPv6
   // Verge 的 IPv6 关闭时一律按 false 处理
@@ -261,8 +261,9 @@ function applyDNS(config, target) {
   if (target && !via.length) console.warn("[防泄露] 分组名 “" + target + "” 含 & % #，境外 DNS 改为按分流规则出站");
   const doh = (ip, params) => "https://" + ip + "/dns-query" + (params.length ? "#" + params.join("&") : "");
   const domestic = DNS_DOMESTIC_IPS.map((ip) => doh(ip, ["DIRECT"])).concat(DNS_DOMESTIC_UDP.map((ip) => ip + "#DIRECT"));
-  // IPv6 跟随 Verge 的 IPv6 开关（内核默认开启）。"cn" 时只有国内域名、局域网、订阅自己写的解析条目和直连时的重新解析返回 IPv6 地址；
-  // 境外域名、系统服务和节点域名的服务器加 disable-ipv6，只拿到 IPv4 地址，和关闭 IPv6 时一样
+  // IPv6 跟随 Verge 的 IPv6 开关（内核默认开启）。"cn" 时境外域名和系统服务的服务器加 disable-ipv6，只拿到 IPv4 地址；
+  // 国内域名、局域网、订阅自己写的解析条目、节点域名和直连时的重新解析照常返回 IPv6 地址。
+  // 节点同时有 IPv4 和 IPv6 时内核两种一起尝试、谁先连上用谁，只有 IPv6 的节点也能用
   const ipv6 = config.ipv6 === false ? false : CONFIG.dnsIPv6;
   const v4 = (list) =>
     ipv6 !== "cn"
@@ -307,7 +308,7 @@ function applyDNS(config, target) {
     "enhanced-mode": "fake-ip",
     "default-nameserver": DNS_BOOTSTRAP.slice(),
     // 解析节点域名：订阅自己指定了就沿用
-    "proxy-server-nameserver": v4(Array.isArray(oldPsn) && oldPsn.length ? oldPsn : domestic),
+    "proxy-server-nameserver": Array.isArray(oldPsn) && oldPsn.length ? oldPsn : domestic.slice(),
     "direct-nameserver": domestic.slice(),
     nameserver: foreign.slice(),
     "nameserver-policy": policy,

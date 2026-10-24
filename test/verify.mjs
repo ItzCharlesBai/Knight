@@ -113,7 +113,7 @@ const SYSTEM =
   "+.pool.ntp.org,+.ntp.org.cn,+.srv.nintendo.net,+.stun.playstation.net,xbox.*.microsoft.com,+.xboxlive.com";
 // 默认（Verge 开着 IPv6、dnsIPv6 "cn"）境外 DNS 不返回 IPv6 地址
 const V4ONLY = "&disable-ipv6=true";
-// 系统服务和节点域名同样只用 IPv4；国内域名和直连时的重新解析不限制
+// 系统服务同样只用 IPv4；国内域名、节点域名和直连时的重新解析不限制
 const DOMESTIC4 = DOMESTIC.map((s) => s + V4ONLY);
 const googleECS = (g, v4only = true) => ["8.8.8.8", "8.8.4.4"].map((ip) => `https://${ip}/dns-query#${g ? g + "&" : ""}${ECS}${v4only ? V4ONLY : ""}`);
 
@@ -186,7 +186,7 @@ test("DNS：只替换上游；国内外判断与国内 DNS 一致；redir-host �
   assert.equal(dns.fallback, undefined);
   assert.equal(dns["fallback-filter"], undefined);
   assert.deepEqual(dns.nameserver, googleECS("🐟 漏网之鱼"));
-  assert.deepEqual(dns["proxy-server-nameserver"], DOMESTIC4);
+  assert.deepEqual(dns["proxy-server-nameserver"], DOMESTIC);
   assert.deepEqual(dns["direct-nameserver"], DOMESTIC);
   assert.deepEqual(dns["nameserver-policy"], {
     "+.example-airport.com": ["114.114.114.114#DIRECT"], // 订阅针对具体域名的条目：最先匹配，固定直连
@@ -217,7 +217,7 @@ test("DNS：订阅解析条目的顺序与直连固定；特殊写法不动", ()
   assert.deepEqual(policy["+.corp.example"], ["10.0.0.53#DIRECT", "tls://10.0.0.54#内网"]);
   assert.deepEqual(policy["+.panel.example"], ["https://223.5.5.5/dns-query#DIRECT"]);
   assert.deepEqual(policy["+.box.example"], ["dhcp://en0"]);
-  assert.deepEqual(config.dns["proxy-server-nameserver"], ["https://doh.example-airport.com/dns-query#disable-ipv6=true"]); // 订阅自己指定的沿用，只是不取 IPv6 地址
+  assert.deepEqual(config.dns["proxy-server-nameserver"], ["https://doh.example-airport.com/dns-query"]); // 订阅自己指定的沿用
   outputs["policy-order"] = config;
 });
 
@@ -394,8 +394,8 @@ test("IPv6：跟随 Verge 的开关；默认只有国内域名返回 IPv6 地址
   assert.deepEqual(on.dns["nameserver-policy"]["geosite:geolocation-!cn"], googleECS("🐟 漏网之鱼"));
   assert.deepEqual(on.dns["nameserver-policy"]["geosite:cn,private"], DOMESTIC); // 国内域名不限制 IPv6
   assert.deepEqual(on.dns["direct-nameserver"], DOMESTIC);
-  assert.deepEqual(on.dns["nameserver-policy"][SYSTEM], DOMESTIC4); // 系统服务、节点域名只用 IPv4，节点照旧用 IPv4 连接
-  assert.deepEqual(on.dns["proxy-server-nameserver"], DOMESTIC4);
+  assert.deepEqual(on.dns["nameserver-policy"][SYSTEM], DOMESTIC4); // 系统服务只用 IPv4
+  assert.deepEqual(on.dns["proxy-server-nameserver"], DOMESTIC); // 节点域名照常解析 IPv6：只有 IPv6 的家宽节点也能连上
 
   // 同时启用 merge.yaml（它写入了同名的系统服务条目和节点 DNS）时结果一样；重复运行不叠加参数
   const withMerge = runScript(withTun(useMerge(MERGE, sub))).config.dns;
