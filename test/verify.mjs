@@ -105,7 +105,7 @@ const BYPASS = [
 const STUN = "3478-3479/5349-5350/19302-19309";
 const CN_STUN = `AND,((DST-PORT,${STUN}),(OR,((GEOSITE,cn),(GEOIP,CN,no-resolve))))`;
 const leakHead = (t) => [...BYPASS, `${CN_STUN},${t}`, `${CN_STUN},REJECT`];
-const TAIL = [`AND,((NETWORK,UDP),(DST-PORT,${STUN})),REJECT`, "AND,((NETWORK,UDP),(DST-PORT,443)),REJECT"];
+const TAIL = [`AND,((NETWORK,UDP),(DST-PORT,${STUN})),REJECT`, "AND,((NETWORK,UDP),(NOT,((DST-PORT,123))),(NOT,((GEOIP,LAN,no-resolve)))),REJECT"];
 const ECS = "ecs=223.5.5.0/24&ecs-override=true";
 const DOMESTIC = ["https://223.5.5.5/dns-query#DIRECT", "https://1.12.12.12/dns-query#DIRECT", "223.5.5.5#DIRECT", "119.29.29.29#DIRECT"];
 const SYSTEM =
@@ -340,7 +340,17 @@ test("WebRTC strict：兜底规则是直连时（白名单式订阅）拦截 STU
 
   // 兜底是代理分组时不插入
   const normal = runScript(withTun(fixture("subscription.yaml")), { webrtc: "strict" }).config;
-  assert.ok(!normal.rules.some((r) => r.includes("GEOIP,LAN")));
+  assert.ok(!normal.rules.includes(guard));
+});
+
+test("节点不支持 UDP 时的兜底：其余 UDP 一律拦截（NTP、局域网放行）；关闭后只拦 STUN", () => {
+  const sub = withTun(fixture("subscription.yaml"));
+  const on = runScript(sub).config.rules;
+  assert.deepEqual(on.slice(-2), TAIL);
+  assert.ok(on.indexOf("MATCH,🐟 漏网之鱼") < on.indexOf(TAIL[1]));
+  const off = runScript(sub, { udpLeakGuard: false }).config.rules;
+  assert.equal(off.at(-1), TAIL[0]);
+  assert.ok(!off.includes(TAIL[1]));
 });
 
 test("extraRules 排在最前，重复运行不叠加规则", () => {
