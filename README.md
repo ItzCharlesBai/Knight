@@ -24,7 +24,7 @@
 | **规则匹配引起的解析** | `GEOIP` 这类规则要先把域名解析成 IP 才能匹配 | 国内域名以外的解析都经代理发出，并附带一个通用的国内 ECS 网段（不是你的 IP）。解析结果和国内 DNS 一致，`GEOIP,CN` 的判断和你订阅原来一样：未收录的国内网站、Windows 更新、Steam 下载这类在国内有节点的服务照样直连 |
 | **浏览器 / 系统自带的国内加密 DNS** | 浏览器「安全 DNS」或系统 DoH 设成阿里、腾讯、360 时会绕过 Clash | 只拦截这几家的 DoH / DoT 服务器，它们会自动回落到普通 DNS，由 TUN 劫持交给 Clash。内核自己的 DNS 查询不受影响 |
 | **WebRTC 泄露** | 浏览器用 UDP 去问 STUN 服务器你的公网 IP。系统代理模式下 UDP 根本不经过 Clash，网页能直接拿到真实 IP | 要求开启 TUN。WebRTC 默认**跟着你订阅的分流走**：国外网站的 WebRTC 走代理，对方只能看到代理 IP；国内网站（B 站等）照常直连，不绕道代理——你本来就是直连访问它们，对方早已知道你的真实 IP，这不算泄露。想连「国外网站借国内 STUN 服务器探测真实 IP」这种少见情况也防住，可以用 `webrtc: "strict"`，代价是国内网站的 WebRTC 也会走代理 |
-| **节点不支持 UDP 时悄悄直连** | 很多机场节点没开 UDP。规则选中这样的节点时，内核会跳过它继续往下匹配，最后**直接直连**：STUN、QUIC、游戏和语音的 UDP 都会暴露真实 IP，域名还会交给国内 DNS 明文重新解析 | 这种情况下本该走代理的 UDP 一律拦截（对时用的 NTP 和局域网除外）：网页拿不到真实 IP，浏览器会自动改用 TCP 走代理。代价是游戏、语音这类必须用 UDP 的软件在这种节点上连不上，换一个支持 UDP 的节点即可 |
+| **节点不支持 UDP 时悄悄直连** | 很多机场节点没开 UDP。规则选中这样的节点时，内核会跳过它继续往下匹配，最后**直接直连**，STUN 和 QUIC 都会暴露真实 IP | 这种情况下的 STUN 和 QUIC（UDP 443）改为拦截：网页拿不到真实 IP，浏览器会自动改用 TCP 走代理。实测只用订阅时这三类请求都直连，加上脚本后都被拦截 |
 | **Windows 多网卡 / IPv6 DNS** | Windows 会同时向每块网卡的 DNS（包括路由器和 IPv6 DNS）发查询，这些查询**不进 TUN**，配置文件管不到 | 开启 TUN 的「严格路由」：它会挡住发往其他网卡的 DNS，并在 TUN 不接管 IPv6 时断开 IPv6，软件自动改用 IPv4。脚本检测到没开会在日志里提醒 |
 | **IPv6 泄露** | IPv6 流量不进 TUN 就会绕过代理直接出去；境外域名解析出 IPv6 地址时，还要求节点支持 IPv6 | **不用关 IPv6。** Verge 的 IPv6 开着（默认）时，TUN 把 IPv6 一并接管，Windows / macOS / Linux 上都不会绕过，直接用 IPv6 地址的连接也按你的分流走。DNS 只给国内域名返回 IPv6 地址，国内网站照常走 IPv6 直连；境外域名只返回 IPv4，照常走代理，节点不支持 IPv6 也没关系；节点自己的域名照常解析 IPv6，只有 IPv6 地址的节点（比如家宽）也能连上。Verge 里关掉 IPv6 时 DNS 一律只返回 IPv4：Windows / Linux 靠严格路由断开 IPv6，macOS 拦不住，脚本会提醒 |
 | **WebRTC 读到网卡的 IPv6 地址** | 网卡有公网 IPv6 时，浏览器会把本机地址写进 WebRTC 的候选地址，网页脚本直接就能读到，不经过网络，TUN 管不到。只有给过摄像头 / 麦克风权限的网站看得到，其他网站只看到一串 `.local` 随机名字 | 在浏览器里限制，见第四节。Verge 的 IPv6 开着时这样设置最有效 |
@@ -33,7 +33,7 @@
 
 默认开启（不改变流量走向；只拦截本会泄露的那部分）：
 
-- `udpLeakGuard`：节点不支持 UDP、内核准备悄悄直连时，拦截这些 UDP（NTP 和局域网除外），浏览器自动改用 TCP 走代理
+- `udpLeakGuard`：节点不支持 UDP、内核准备悄悄直连时，拦截 QUIC（UDP 443），浏览器自动改用 TCP 走代理
 
 - `realIPForCN`：国内域名直接返回真实 IP 直连，国内网站和软件拿到的就是真实地址；其余域名仍用 Fake-IP
 - `tcp-concurrent`：一个域名解析出多个 IP 时同时握手，用最快的那个
@@ -129,7 +129,7 @@
 2. 确认是扩展导致的话，恢复脚本，打开 Verge 的「连接」页，再打开那个软件，找到它的连接，看命中了哪条规则：
    - 命中 `DOMAIN,dns.alidns.com` / `IP-CIDR,223.5.5.5` 这类 `REJECT`：是加密 DNS 拦截规则，把 `blockDNSBypass` 设为 `false`。
    - 命中 `AND,((DST-PORT,3478...`：是 `webrtc: "strict"` 的规则，改回默认的 `"follow"`，或用 `extraRules` 给这个软件放行。
-   - 命中 `AND,((NETWORK,UDP),(NOT,((DST-PORT,123))),...),REJECT`：当前节点不支持 UDP，脚本拦下了本会悄悄直连的 UDP。浏览器会自动改走 TCP；游戏、语音等需要 UDP 的软件，换一个支持 UDP 的节点（Hysteria2、TUIC，或机场标注支持 UDP 的节点）。确实想让它直连，用 `extraRules` 单独放行，比如 `"PROCESS-NAME,Game.exe,DIRECT"`。
+   - 命中 `AND,((NETWORK,UDP),(DST-PORT,443)),REJECT`：当前节点不支持 UDP。浏览器会自动改走 TCP；别的软件需要 UDP 的话，换一个支持 UDP 的节点。
    - 国内网站打不开或很慢，而且是开了 Verge 的 IPv6 之后才出现的：你的网络分到了 IPv6 地址但 IPv6 不通。把 `dnsIPv6` 改成 `false`，国内网站改回只用 IPv4；IPv6 仍由 TUN 接管，不会泄露。
    - 打开很慢、或者境外网站全都打不开：境外域名的解析要经过订阅兜底规则指向的分组。节点挂了、这个分组选成了 DIRECT、或者 Verge 切到了直连模式，解析都会失败。换一个能用的节点即可。
 3. 如果你打开过默认关闭的优化，逐个关回去排查。
@@ -143,7 +143,7 @@
 | --- | --- | --- |
 | `proxyGroup` | `""` | 境外 DNS（以及 `webrtc: "strict"` 时的 WebRTC）用哪个分组出站。留空 = 订阅兜底规则（MATCH）指向的分组，每次从订阅里现读、不写死；只有想手动指定时才填 |
 | `webrtc` | `"follow"` | `follow`：跟着订阅的分流走，国内直连、国外走代理；只在节点不支持 UDP、内核准备悄悄直连时拦截 STUN。`strict`：发往国内的 STUN 也改走代理分组（旧写法 `proxy` 等同于它），国内网站的 WebRTC 会绕道代理。`reject`：拦截所有 STUN 请求（最彻底，网页音视频通话可能失败）。`off`：不处理 |
-| `udpLeakGuard` | `true` | 节点不支持 UDP、内核准备把 UDP 悄悄改成直连时，把这些 UDP 一律拦截（对时 NTP 和局域网除外）。浏览器自动改用 TCP 走代理；必须用 UDP 的软件请换支持 UDP 的节点。关闭后只拦 WebRTC 的 STUN |
+| `udpLeakGuard` | `true` | 节点不支持 UDP、内核准备把 UDP 悄悄改成直连时，拦截其中的 QUIC（UDP 443），浏览器自动改用 TCP 走代理 |
 | `blockQUIC` | `false` | 拦截境外 QUIC，让浏览器回落到 TCP |
 | `dnsIPv6` | `"cn"` | DNS 返回 IPv6 地址的范围。`"cn"`：只有国内域名返回 IPv6 地址，国内网站可走 IPv6 直连；境外域名和系统服务只用 IPv4，走代理不要求节点支持 IPv6；节点自己的域名照常解析 IPv6，只有 IPv6 地址的节点也能连上。`false`：所有域名只返回 IPv4。`true`：所有域名都返回 IPv6 地址，境外的 Fake-IP 也分配 IPv6。Verge 的 IPv6 关闭时一律按 `false` 处理 |
 | `realIPForCN` | `true` | 国内域名（geosite:cn）直接返回国内 DNS 解析出的真实 IP，不用 Fake-IP；关掉则所有域名都用 Fake-IP |

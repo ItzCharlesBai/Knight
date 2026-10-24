@@ -26,9 +26,8 @@ const CONFIG = {
   //   "off"    不处理
   webrtc: "follow",
 
-  // 节点不支持 UDP 时，内核会把本该走代理的 UDP 悄悄改成直连：对方看到真实 IP，域名还会交给国内 DNS 重新解析。
-  // 打开后这类 UDP 一律拦截（对时用的 NTP 和局域网除外）：浏览器会自动改用 TCP 走代理；
-  // 游戏、语音这类必须用 UDP 的软件请换支持 UDP 的节点。关闭则只拦 QUIC 以外的 WebRTC STUN（始终拦截）
+  // 节点不支持 UDP 时，内核会把本该走代理的 UDP 悄悄改成直连，暴露真实 IP。
+  // 打开后拦截其中的 QUIC（UDP 443），浏览器会自动改用 TCP 走代理（WebRTC 的这部分始终拦截）
   udpLeakGuard: true,
 
   // ---- 以下优化默认关闭：它们会改变流量走法或节点连接方式，个别软件可能因此打不开 ----
@@ -387,8 +386,7 @@ function headRules(target) {
 function tailRules() {
   const rules = [];
   if (CONFIG.webrtc !== "off") rules.push("AND,((NETWORK,UDP),(DST-PORT," + STUN_PORTS + ")),REJECT");
-  // 其余 UDP：对时（NTP）和局域网（打印机、投屏的发现广播）放行，它们本来就不该进代理
-  if (CONFIG.udpLeakGuard) rules.push("AND,((NETWORK,UDP),(NOT,((DST-PORT,123))),(NOT,((GEOIP,LAN,no-resolve)))),REJECT");
+  if (CONFIG.udpLeakGuard) rules.push("AND,((NETWORK,UDP),(DST-PORT,443)),REJECT");
   return rules;
 }
 
