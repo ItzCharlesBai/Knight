@@ -1,0 +1,30 @@
+{
+  "name": "knight",
+  "productName": "Knight",
+  "version": "0.1.0",
+  "private": true,
+  "description": "简洁的 mihomo 桌面客户端，内置防 DNS / WebRTC / IPv6 泄露",
+  "author": "Knight",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "core": "node scripts/fetch-core.mjs",
+    "test": "node --test test/*.test.mjs",
+    "dist:win": "node scripts/fetch-core.mjs --platform win32 --arch x64 && node scripts/fetch-core.mjs --platform win32 --arch arm64 && electron-builder --win",
+    "dist:mac": "node scripts/fetch-core.mjs --platform darwin --arch arm64 && node scripts/fetch-core.mjs --platform darwin --arch x64 && electron-builder --mac",
+    "dist:linux": "node scripts/fetch-core.mjs --platform linux --arch x64 && node scripts/fetch-core.mjs --platform linux --arch arm64 && electron-builder --linux"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ItzCharlesBai/Knight"
+  }
+}

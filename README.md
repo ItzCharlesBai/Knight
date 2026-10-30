@@ -7,6 +7,8 @@
 | [`clash-verge-rev/script.js`](clash-verge-rev/script.js) | 订阅 → **全局扩展脚本** | 全部功能：防 DNS / WebRTC / IPv6 泄露，以及可选的优化 |
 | [`clash-verge-rev/merge.yaml`](clash-verge-rev/merge.yaml) | 订阅 → **全局扩展覆写配置** | 只有 DNS 和性能参数（不含规则） |
 
+> **新：Knight 客户端**　不想折腾 Verge？[`app/`](app/) 是一个简洁的 mihomo 桌面客户端（Windows / macOS / Linux），内置下面的全部防泄露功能，参数在设置页里点选即可，详见 [`app/README.md`](app/README.md)。
+
 **只装 `script.js` 就够了，推荐只用它。** 脚本会在订阅原有的 DNS 设置上叠加；Merge 只能整体替换，还没办法把规则插到最前面，所以 WebRTC 防护只能靠脚本。
 
 **默认原则：只做防泄露，不改节点、不拦正常流量、不打乱你的分流。** 拦截 QUIC、补 UDP / TLS 指纹、域名嗅探这些会改变流量走法的优化都默认关闭，需要时在 `CONFIG` 里手动打开（见第六节）。
@@ -192,6 +194,8 @@ extraRules: [
 ---
 
 ## 八、开发与测试
+
+Knight 客户端的开发和打包见 [`app/README.md`](app/README.md)；它直接读取 `clash-verge-rev/` 下的这两个文件，改动后客户端里的行为同步变化。
 
 `test/verify.mjs` 按 Verge 的方式模拟整个流程（订阅 → Merge → 脚本），对输出做断言。设置 `MIHOMO_BIN` 后，还会把生成的配置交给真实的 mihomo 内核跑 `mihomo -t` 做校验。
 

@@ -1,0 +1,62 @@
+# 打包配置：先运行 npm run core（或 dist:* 脚本会自动下载对应平台的内核和 GEO 数据）
+appId: io.github.knight.app
+productName: Knight
+copyright: MIT
+directories:
+  output: dist
+files:
+  - package.json
+  - src/**
+  - resources/icons/**
+  - "!**/*.map"
+extraResources:
+  # 内核：resources/core/<os>-<arch>/ → 安装目录 resources/core/
+  - from: resources/core/${os}-${arch}
+    to: core
+  - from: resources/geo
+    to: geo
+  - from: resources/icons
+    to: icons
+  # 仓库里的防泄露脚本与 Merge 配置，应用直接读取（改动后重新打包即可）
+  - from: ../clash-verge-rev
+    to: extensions
+    filter: ["script.js", "merge.yaml"]
+asar: true
+publish: null
+icon: resources/icons/icon.png
+protocols:
+  - name: Clash 订阅
+    schemes: [clash, mihomo, knight]
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  requestedExecutionLevel: asInvoker
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: Knight
+  artifactName: Knight-${version}-win-${arch}-setup.${ext}
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  category: public.app-category.utilities
+  artifactName: Knight-${version}-mac-${arch}.${ext}
+  # 内核需要 setuid 才能开虚拟网卡，所以它放在用户目录运行，不在签名的 .app 里修改
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+    - target: deb
+      arch: [x64, arm64]
+  category: Network
+  maintainer: Knight
+  synopsis: 简洁的 mihomo 客户端
+  artifactName: Knight-${version}-linux-${arch}.${ext}
+deb:
+  depends: [libcap2-bin, policykit-1]
