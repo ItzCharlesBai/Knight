@@ -5,6 +5,8 @@ const get = (obj, path) => path.split(".").reduce((o, k) => (o == null ? o : o[k
 // "tun.stack" + 值 → { tun: { stack: 值 } }
 const patchOf = (path, value) => path.split(".").reduceRight((v, k) => ({ [k]: v }), value);
 
+const STATUS = { running: "运行中", starting: "启动中", stopped: "已停止", error: "出错" };
+
 const LOG_LEVELS = [
   ["silent", "不输出"],
   ["error", "错误"],
@@ -34,8 +36,9 @@ export default function settings(root, ctx) {
     row(label, desc, html`<input type="number" data-key="${path}" data-type="number" min="${min}" max="${max}" value="${get(ctx.state.settings, path)}" />`);
   const text = (path, label, desc, placeholder = "") =>
     row(label, desc, html`<input data-key="${path}" value="${get(ctx.state.settings, path)}" placeholder="${placeholder}" />`, "wide-input");
+  const ENGLISH = { core: "Cores", proxy: "Proxy", sysproxy: "System proxy", tun: "TUN", leak: "Privacy", custom: "Custom", app: "Application" };
   const section = (id, title, rows, note = "") =>
-    html`<section class="set-section" id="${id}"><h2 class="section-title">${title}</h2>${note}<div class="card">${rows}</div></section>`;
+    html`<section class="set-section" id="${id}"><h2 class="section-title" data-en="${ENGLISH[id]}">${title}</h2>${note}<div class="card">${rows}</div></section>`;
 
   function render() {
     const st = ctx.state;
@@ -54,19 +57,28 @@ export default function settings(root, ctx) {
         html`
         ${st.cores.map((c) => {
           const using = st.core.id === c.id;
-          const paired = st.sidecar && st.sidecar.id === c.id;
+          const paired = st.sidecars.some((x) => x.id === c.id);
           return html`<div class="core-row">
-            <input type="radio" name="core" data-key="core" value="${c.id}" ${raw(using ? "checked" : "")} ${raw(c.installed ? "" : "disabled")} title="${c.installed ? "使用这个内核" : "先下载"}" />
-            <div class="set-text"><span>${c.label}${using ? html`<span class="badge">使用中</span>` : ""}${paired ? html`<span class="badge">搭配</span>` : ""}<small>${c.installed ? c.version || "" : "未下载"}</small></span><small>${c.desc}</small></div>
+            <input type="radio" name="core" data-key="core" value="${c.id}" ${raw(using ? "checked" : "")} ${raw(c.installed && !c.sidecarOnly ? "" : "disabled")} title="${c.sidecarOnly ? "只能搭配使用" : c.installed ? "使用这个内核" : "先下载"}" />
+            <div class="set-text"><span>${c.label}${using ? html`<span class="badge">使用中</span>` : ""}${paired ? html`<span class="badge">搭配中</span>` : ""}${c.sidecarOnly ? html`<span class="badge muted-badge">仅搭配</span>` : ""}<small>${c.installed ? c.version || "" : "未下载"}</small></span><small>${c.desc}</small></div>
             <button class="btn sm" data-action="install-core" data-id="${c.id}" ${raw(c.downloading ? "disabled" : "")}>${icon(c.installed ? "refresh" : "down", 14)}${c.downloading ? "下载中…" : c.installed ? "更新" : "下载"}</button>
           </div>`;
         })}
-        ${sw("combine", "搭配使用", "当前内核不支持的节点交给另一个已下载的内核运行：mihomo 下的 NaiveProxy 交给 sing-box，sing-box 下的 SSR、Snell、Mieru 交给 mihomo")}
-        ${s.combine ? number("sidecarPort", "搭配端口", "另一个内核在本机开的 SOCKS 入口从这个端口起依次使用", 1024, 65000) : ""}
+        ${sw("combine", "搭配使用", "当前内核不支持的节点交给另一个已下载的内核运行：mihomo 下的 NaiveProxy 交给 sing-box，sing-box 下的 SSR、Snell、XHTTP 交给 mihomo 或 Xray")}
+        ${s.combine && st.cores.some((c) => c.id === "xray" && c.installed)
+          ? select("xrayFor", "交给 Xray 的节点", "mihomo 不再兼容 Xray v26.7.11 以后服务端的 REALITY；连不上时把 REALITY 或全部 VLESS 节点交给 Xray", [
+              ["off", "不指定（只在主内核跑不了时才交给 Xray）"],
+              ["reality", "VLESS REALITY 节点"],
+              ["vless", "全部 VLESS 节点"],
+            ])
+          : ""}
+        ${s.combine ? number("sidecarPort", "搭配端口", "搭配内核在本机开的 SOCKS 入口从这个端口起依次使用", 1024, 65000) : ""}
         ${st.core.id === "mihomo-smart" ? sw("smartGroups", "Smart 分组", "把订阅里的自动选择（url-test）分组换成 Smart 分组") : ""}
         ${row(
           "运行状态",
-          st.core.installed ? `${st.core.label} ${st.core.version} · ${{ running: "运行中", starting: "启动中", stopped: "已停止", error: "出错" }[st.core.status]}${st.sidecar ? ` ；搭配 ${st.sidecar.label} · ${st.sidecar.status === "running" ? "运行中" : st.sidecar.status}` : ""}` : "还没有内核，请先下载",
+          st.core.installed
+            ? `${st.core.label} ${st.core.version} · ${STATUS[st.core.status]}` + st.sidecars.map((x) => ` ；搭配 ${x.label} · ${STATUS[x.status] || x.status}`).join("")
+            : "还没有内核，请先下载",
           html`<button class="btn sm" data-action="restart" ${raw(coreBusy ? "disabled" : "")}>${icon("refresh", 14)}${coreBusy === "restart" ? "重启中…" : "重启内核"}</button>`
         )}
         ${st.core.error ? html`<div class="notice bad inset">${st.core.error}</div>` : ""}

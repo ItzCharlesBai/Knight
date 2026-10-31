@@ -179,16 +179,80 @@ function parseSSR(line) {
   return { name: b("remarks"), type: "ssr", server, port, cipher, password, protocol, obfs, "protocol-param": b("protoparam"), "obfs-param": b("obfsparam"), udp: true };
 }
 
+// 分享链接里的 xhttp extra（Xray 的 JSON）→ mihomo 的 xhttp-opts 字段
+const XHTTP_EXTRA = {
+  headers: "headers",
+  noGRPCHeader: "no-grpc-header",
+  xPaddingBytes: "x-padding-bytes",
+  scMaxEachPostBytes: "sc-max-each-post-bytes",
+  scMinPostsIntervalMs: "sc-min-posts-interval-ms",
+};
+const XMUX = {
+  maxConcurrency: "max-concurrency",
+  maxConnections: "max-connections",
+  cMaxReuseTimes: "c-max-reuse-times",
+  hMaxRequestTimes: "h-max-request-times",
+  hMaxReusableSecs: "h-max-reusable-secs",
+  hKeepAlivePeriod: "h-keep-alive-period",
+};
+const pickKeys = (src, map) => Object.fromEntries(Object.entries(map).filter(([k]) => src && src[k] !== undefined).map(([k, v]) => [v, src[k]]));
+
+function xhttpOpts(path, host, mode, extraText) {
+  const opts = { path: path || "/" };
+  if (host) opts.host = host;
+  if (mode && mode !== "auto") opts.mode = mode;
+  if (extraText) {
+    let extra = null;
+    try {
+      extra = JSON.parse(extraText);
+    } catch {
+      extra = null;
+    }
+    if (extra && typeof extra === "object") {
+      Object.assign(opts, pickKeys(extra, XHTTP_EXTRA));
+      if (extra.xmux) opts["reuse-settings"] = pickKeys(extra.xmux, XMUX);
+      const d = extra.downloadSettings;
+      if (d && typeof d === "object") {
+        const ds = { path: (d.xhttpSettings || {}).path || opts.path };
+        if ((d.xhttpSettings || {}).host) ds.host = d.xhttpSettings.host;
+        if (d.address) ds.server = d.address;
+        if (d.port) ds.port = Number(d.port);
+        if (d.security === "tls" || d.security === "reality") ds.tls = true;
+        const t = d.tlsSettings || d.realitySettings || {};
+        if (t.serverName) ds.servername = t.serverName;
+        if (t.fingerprint) ds["client-fingerprint"] = t.fingerprint;
+        if (d.security === "reality") ds["reality-opts"] = { "public-key": t.publicKey || t.password || "", "short-id": t.shortId || "" };
+        opts["download-settings"] = ds;
+      }
+      // 原样留一份，导出分享链接、交给 Xray 时用（mihomo 会忽略不认识的字段）
+      opts["xray-extra"] = extraText;
+    }
+  }
+  return opts;
+}
+
+// 传输层：tcp / ws / httpupgrade / grpc / h2 / http / xhttp / mkcp / quic
 function transportOpts(node, network, get) {
   const host = get("host");
   const path = get("path");
   if (network === "ws") node["ws-opts"] = Object.assign({ path: path || "/" }, host ? { headers: { Host: host } } : {});
-  else if (network === "grpc") node["grpc-opts"] = { "grpc-service-name": get("serviceName") || path || "" };
-  else if (network === "h2") node["h2-opts"] = Object.assign({ path: path || "/" }, host ? { host: [host] } : {});
-  else if (network === "http") node["http-opts"] = Object.assign({ path: [path || "/"] }, host ? { headers: { Host: [host] } } : {});
+  else if (network === "grpc") {
+    node["grpc-opts"] = { "grpc-service-name": get("serviceName") || path || "" };
+    if (get("mode") === "multi") node["grpc-opts"]["grpc-mode"] = "multi";
+    if (get("authority")) node["grpc-opts"].authority = get("authority");
+  } else if (network === "h2") node["h2-opts"] = Object.assign({ path: path || "/" }, host ? { host: host.split(",") } : {});
+  else if (network === "http") node["http-opts"] = Object.assign({ path: [path || "/"] }, host ? { headers: { Host: host.split(",") } } : {});
   else if (network === "httpupgrade") {
     node.network = "ws";
     node["ws-opts"] = Object.assign({ path: path || "/", "v2ray-http-upgrade": true }, host ? { headers: { Host: host } } : {});
+  } else if (network === "xhttp" || network === "splithttp") {
+    node.network = "xhttp";
+    node["xhttp-opts"] = xhttpOpts(path, host, get("mode"), get("extra"));
+  } else if (network === "kcp" || network === "mkcp") {
+    node.network = "mkcp";
+    node["mkcp-opts"] = Object.assign({}, get("headerType") && get("headerType") !== "none" ? { header: get("headerType") } : {}, get("seed") || path ? { seed: get("seed") || path } : {});
+  } else if (network === "quic") {
+    node["quic-opts"] = Object.assign({}, get("quicSecurity") ? { security: get("quicSecurity") } : {}, get("key") ? { key: get("key") } : {}, get("headerType") ? { header: get("headerType") } : {});
   }
 }
 
@@ -211,20 +275,27 @@ function parseVmess(line) {
     if (json.sni) node.servername = json.sni;
     if (json.fp) node["client-fingerprint"] = json.fp;
     if (json.alpn) node.alpn = String(json.alpn).split(",");
+    if (json.allowInsecure === true || json.allowInsecure === "1" || json.allowInsecure === "true") node["skip-cert-verify"] = true;
   }
   if (node.network === "tcp") delete node.network;
-  else transportOpts(node, node.network, (k) => (k === "serviceName" ? json.path : json[k]));
+  else transportOpts(node, node.network, (k) => (k === "serviceName" ? json.path : k === "headerType" ? json.type : json[k]));
   return node.server && node.port && node.uuid ? node : null;
 }
 
+// TLS / REALITY / ECH 参数（vless、trojan 共用）
 function tlsParams(node, q) {
   const security = q.get("security");
   if (q.get("sni") || q.get("peer")) node.servername = q.get("sni") || q.get("peer");
   if (q.get("fp")) node["client-fingerprint"] = q.get("fp");
   if (q.get("alpn")) node.alpn = q.get("alpn").split(",");
   if (bool(q.get("allowInsecure")) || bool(q.get("insecure"))) node["skip-cert-verify"] = true;
+  if (q.get("ech")) node["ech-opts"] = { enable: true, config: q.get("ech") };
   if (security === "reality") {
-    node["reality-opts"] = { "public-key": q.get("pbk") || "", "short-id": q.get("sid") || "" };
+    const reality = { "public-key": q.get("pbk") || "", "short-id": q.get("sid") || "" };
+    // spiderX、ML-DSA-65 校验只有 Xray 用得上，mihomo 会忽略
+    if (q.get("spx")) reality["spider-x"] = q.get("spx");
+    if (q.get("pqv")) reality["mldsa65-verify"] = q.get("pqv");
+    node["reality-opts"] = reality;
     if (!node["client-fingerprint"]) node["client-fingerprint"] = "chrome";
   }
 }
@@ -232,13 +303,17 @@ function tlsParams(node, q) {
 function parseVless(line) {
   const url = new URL(line);
   const q = url.searchParams;
-  const network = q.get("type") || "tcp";
+  let network = (q.get("type") || "tcp").toLowerCase();
+  if (network === "raw") network = "tcp";
+  if (network === "tcp" && q.get("headerType") === "http") network = "http";
   const node = { name: decodeName(url.hash), type: "vless", server: hostOf(url), port: portOf(url, 443), uuid: decodeURIComponent(url.username), udp: true };
   const security = q.get("security");
   if (security === "tls" || security === "reality") node.tls = true;
   tlsParams(node, q);
   if (q.get("flow")) node.flow = q.get("flow");
+  // VLESS Encryption（mlkem768x25519plus…）；none 表示不加密
   if (q.get("encryption") && q.get("encryption") !== "none") node.encryption = q.get("encryption");
+  if (q.get("packetEncoding")) node["packet-encoding"] = q.get("packetEncoding");
   if (network !== "tcp") {
     node.network = network;
     transportOpts(node, network, (k) => q.get(k));

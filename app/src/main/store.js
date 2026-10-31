@@ -8,6 +8,8 @@ export const DEFAULTS = {
   // 搭配使用：当前内核不支持的节点交给另一个已下载的内核运行（本地 SOCKS 入口从 sidecarPort 开始）
   combine: true,
   sidecarPort: 7920,
+  // 哪些 VLESS 节点优先交给 Xray（需要先下载 Xray）：off | reality | vless
+  xrayFor: "off",
   // mihomo Smart 内核：自动测速分组换成 Smart 分组
   smartGroups: true,
   mode: "rule",

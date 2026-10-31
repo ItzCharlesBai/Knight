@@ -130,24 +130,30 @@ function useSmartGroups(config) {
   });
 }
 
-// core：{ id, kind }；sidecar：{ kind, bin } 可搭配的另一个内核（没有就是 null）
+// core：{ id, kind }；sidecars：已下载、可以搭配的内核 [{ id, kind, bin, label }]，按优先顺序
 // singbox：{ providers, ruleSetPath, version } 转 sing-box 时用
-export function generate({ profile, settings, scriptSource = "", mergeSource = "", profileName = "", core = { id: "mihomo", kind: "clash" }, sidecar = null, singbox = {} }) {
+export function generate({ profile, settings, scriptSource = "", mergeSource = "", profileName = "", core = { id: "mihomo", kind: "clash" }, sidecars = [], singbox = {} }) {
   const logs = [];
   const info = (message, level = "info") => logs.push({ source: "Knight", level, message });
 
-  // 当前内核跑不了的节点：有另一个内核就交给它，没有就去掉
+  // 当前内核跑不了的节点（或者指定交给 Xray 的 VLESS 节点）：交给搭配内核，没有可用的就去掉
+  const available = settings.combine ? sidecars : [];
   const split = splitNodes(profile, core.kind, {
-    sidecarKind: settings.combine && sidecar ? sidecar.kind : "",
+    sidecars: available,
+    xrayFor: settings.xrayFor,
     basePort: settings.sidecarPort,
     reserved: [settings.mixedPort, settings.controllerPort],
   });
-  const otherLabel = core.kind === "singbox" ? "mihomo" : "sing-box";
-  if (split.entries.length) info(`${split.entries.length} 个节点由 ${otherLabel} 搭配运行：${split.entries.map((e) => e.node.name).slice(0, 5).join("、")}`);
+  const used = available.filter((sc) => split.entries.some((e) => e.sidecar === sc.id));
+  for (const sc of used) {
+    const mine = split.entries.filter((e) => e.sidecar === sc.id);
+    info(`${mine.length} 个节点由 ${sc.label || sc.id} 搭配运行：${mine.map((e) => e.node.name).slice(0, 5).join("、")}`);
+  }
   if (split.dropped.length) {
+    const hint = core.kind === "singbox" ? "mihomo 或 Xray" : "sing-box 或 Xray";
     info(
       `${split.dropped.length} 个节点当前内核不支持，已跳过：${split.dropped.slice(0, 5).join("、")}` +
-        (settings.combine ? `。在 设置 → 内核 里下载 ${otherLabel} 后会自动搭配使用` : "。打开「搭配使用」后可交给另一个内核运行"),
+        (settings.combine ? `。在 设置 → 内核 里下载 ${hint} 后会自动搭配使用` : "。打开「搭配使用」后可交给另一个内核运行"),
       "warn"
     );
   }
@@ -177,18 +183,22 @@ export function generate({ profile, settings, scriptSource = "", mergeSource = "
   config = applySettings(config, settings);
   ensureDNS(config);
 
-  const side = split.entries.length ? { kind: sidecar.kind, entries: split.entries.length, text: sidecarConfig(sidecar.kind, split.entries) } : null;
+  const plans = used.map((sc) => {
+    const mine = split.entries.filter((e) => e.sidecar === sc.id);
+    return { id: sc.id, kind: sc.kind, bin: sc.bin, entries: mine.length, text: sidecarConfig(sc.kind, mine) };
+  });
+  const bins = plans.map((p) => p.bin);
   if (core.kind !== "singbox") {
     // 搭配的内核自己连节点，不能再被虚拟网卡绕回来
-    if (side) {
-      config.rules = [`PROCESS-PATH,${sidecar.bin},DIRECT`].concat(config.rules || []);
+    if (bins.length) {
+      config.rules = bins.map((b) => `PROCESS-PATH,${b},DIRECT`).concat(config.rules || []);
       config["find-process-mode"] = "strict";
     }
-    return { kind: "clash", config, logs, text: yaml.dump(config, { lineWidth: -1, noRefs: true }), sidecar: side, ruleSets: [] };
+    return { kind: "clash", config, logs, text: yaml.dump(config, { lineWidth: -1, noRefs: true }), sidecars: plans, ruleSets: [] };
   }
-  const sb = toSingBox(config, settings, Object.assign({}, singbox, { sidecarBin: side ? sidecar.bin : "" }));
+  const sb = toSingBox(config, settings, Object.assign({}, singbox, { sidecarBins: bins }));
   sb.logs.forEach((l) => logs.push(Object.assign({ source: "sing-box 转换" }, l)));
-  return { kind: "singbox", config, logs, text: JSON.stringify(sb.config, null, 2), sidecar: side, ruleSets: sb.ruleSets };
+  return { kind: "singbox", config, logs, text: JSON.stringify(sb.config, null, 2), sidecars: plans, ruleSets: sb.ruleSets };
 }
 
 export const coreKind = (id) => (CORES[id] || CORES.mihomo).kind;

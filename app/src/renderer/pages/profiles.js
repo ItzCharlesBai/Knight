@@ -13,7 +13,7 @@ export default function profiles(root, ctx) {
       </div>
     </header>
     <form class="card add-bar" id="s-add">
-      <input data-key="url" name="url" placeholder="粘贴订阅链接（Clash / mihomo 订阅，或 ss:// vmess:// 等节点链接的订阅）" autocomplete="off" />
+      <input data-key="url" name="url" placeholder="粘贴订阅链接：Clash / mihomo 订阅，或 vless:// vmess:// trojan:// hy2:// ss:// 等节点链接组成的订阅" autocomplete="off" />
       <button class="btn primary" type="submit">${icon("plus", 16)}导入</button>
       <button class="btn" type="button" data-action="file">${icon("file", 16)}本地文件</button>
     </form>

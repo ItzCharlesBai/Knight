@@ -1,7 +1,8 @@
 // 内核登记表与下载：打包脚本（scripts/fetch-core.mjs）和应用内「下载 / 更新内核」共用
 import zlib from "node:zlib";
 
-// kind：clash = mihomo 系（读 Clash YAML，一套配置通用）；singbox = sing-box（配置由 Knight 自动转换）
+// kind：clash = mihomo 系（读 Clash YAML，一套配置通用）；singbox = sing-box（配置由 Knight 自动转换）；
+// xray = Xray-core（没有 Clash 控制接口，只作为搭配内核运行部分节点）。sidecarOnly 的内核不能当主内核
 export const CORES = {
   mihomo: {
     label: "mihomo",
@@ -31,11 +32,27 @@ export const CORES = {
     repo: "SagerNet/sing-box",
     tag: "",
   },
+  "sing-box-beta": {
+    label: "sing-box 测试版",
+    desc: "sing-box 的最新预发布版本（alpha / beta），与正式版共用同一套转换",
+    kind: "singbox",
+    repo: "SagerNet/sing-box",
+    tag: "",
+    prerelease: true,
+  },
+  xray: {
+    label: "Xray",
+    desc: "XTLS 官方实现，VLESS / XHTTP / REALITY 的参考内核。只作搭配：可以让它专门运行 VLESS 节点",
+    kind: "xray",
+    repo: "XTLS/Xray-core",
+    tag: "",
+    sidecarOnly: true,
+  },
 };
 export const CORE_IDS = Object.keys(CORES);
 
-export const binName = (id = "mihomo", platform = process.platform) =>
-  ((CORES[id] || CORES.mihomo).kind === "singbox" ? "sing-box" : "mihomo") + (platform === "win32" ? ".exe" : "");
+const BIN = { clash: "mihomo", singbox: "sing-box", xray: "xray" };
+export const binName = (id = "mihomo", platform = process.platform) => BIN[(CORES[id] || CORES.mihomo).kind] + (platform === "win32" ? ".exe" : "");
 export const coreFileName = (platform = process.platform) => binName("mihomo", platform);
 
 const OS = { win32: "windows", darwin: "darwin", linux: "linux" };
@@ -46,7 +63,13 @@ export function assetName(version, platform = process.platform, arch = process.a
   const os = OS[platform];
   const cpu = CPU[arch];
   if (!os || !cpu) throw new Error(`不支持的平台：${platform}-${arch}`);
-  if ((CORES[id] || {}).kind === "singbox") return `sing-box-${String(version).replace(/^v/, "")}-${os}-${cpu}.${platform === "win32" ? "zip" : "tar.gz"}`;
+  const kind = (CORES[id] || {}).kind;
+  if (kind === "singbox") return `sing-box-${String(version).replace(/^v/, "")}-${os}-${cpu}.${platform === "win32" ? "zip" : "tar.gz"}`;
+  if (kind === "xray") {
+    const xos = { windows: "windows", darwin: "macos", linux: "linux" }[os];
+    const xcpu = { amd64: "64", arm64: "arm64-v8a", 386: "32", armv7: "arm32-v7a" }[cpu];
+    return `Xray-${xos}-${xcpu}.zip`;
+  }
   // amd64 用 compatible 版本：不要求 CPU 支持 AVX2 等新指令，老电脑也能跑
   const variant = cpu === "amd64" ? "-compatible" : "";
   return `mihomo-${os}-${cpu}${variant}-${version}.${platform === "win32" ? "zip" : "gz"}`;
@@ -71,10 +94,18 @@ export async function latestVersion({ id = "mihomo", fetch: fetchFn = fetch, mir
     if (!/^(v\d+\.\d+\.\d+|alpha-[\w-]+)$/.test(text)) throw new Error("无法识别内核版本号：" + text.slice(0, 40));
     return text;
   }
-  // sing-box 没有 version.txt：/releases/latest 会跳转到 /releases/tag/v1.x.y
+  // 预发布版：从发布列表里取最新的一个预发布
+  if (spec.prerelease) {
+    const res = await fetchFn(`https://api.github.com/repos/${spec.repo}/releases?per_page=15`, { headers: { Accept: "application/vnd.github+json" } });
+    if (!res.ok) throw new Error(`无法获取 ${spec.label} 的版本列表（HTTP ${res.status}）`);
+    const pre = (await res.json()).find((r) => r && r.prerelease && !r.draft);
+    if (!pre) throw new Error(`暂时没有 ${spec.label}`);
+    return pre.tag_name;
+  }
+  // sing-box、Xray 没有 version.txt：/releases/latest 会跳转到 /releases/tag/v1.x.y
   const res = await fetchFn(withMirror(`${releases(id)}/latest`, mirror), { redirect: "follow" });
   const tag = /\/releases\/tag\/(v\d+\.\d+\.\d+)(?:$|[?#])/.exec(res.url || "") || /\/releases\/tag\/(v\d+\.\d+\.\d+)"/.exec(await res.text());
-  if (!tag) throw new Error("无法获取 sing-box 最新版本号");
+  if (!tag) throw new Error(`无法获取 ${spec.label} 最新版本号`);
   return tag[1];
 }
 
@@ -96,7 +127,8 @@ export function extractCore(archive, name, bin) {
 
 // 压缩包里的文件放平；可执行文件统一改名为 mihomo(.exe) / sing-box(.exe)，其余（动态库）原名保留
 function pickBinary(entries, bin) {
-  const files = entries.filter((e) => !/(^|\/)(LICENSE|README)[^/]*$/i.test(e.name)).map((e) => ({ name: e.name.split("/").pop(), data: e.data }));
+  // 不要说明文件和 Xray 自带的 geoip.dat / geosite.dat（搭配内核用不到）
+  const files = entries.filter((e) => !/(^|\/)(LICENSE|README)[^/]*$|\.dat$/i.test(e.name)).map((e) => ({ name: e.name.split("/").pop(), data: e.data }));
   const exe = bin.endsWith(".exe") ? files.find((f) => /\.exe$/i.test(f.name)) : files.find((f) => f.name === bin.replace(/\.exe$/, "")) || files.find((f) => !/\.(so|dylib|dll)(\.\d+)*$/.test(f.name));
   if (!exe) throw new Error("压缩包里没有找到内核文件");
   return [{ name: bin, data: exe.data }, ...files.filter((f) => f !== exe)];

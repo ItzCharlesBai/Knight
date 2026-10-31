@@ -3,7 +3,7 @@ import { convertFields, DEFAULT_OPTIONS, readConvert } from "../convert-form.js"
 import { delegate, html, icon, modal, patch, raw } from "../lib.js";
 
 // 切到别的页面再回来时保留填过的内容
-const draft = { urls: "", profiles: [], text: "", options: Object.assign({}, DEFAULT_OPTIONS, { template: "region" }), target: "clash", leakGuard: false };
+const draft = { urls: "", profiles: [], text: "", options: Object.assign({}, DEFAULT_OPTIONS, { template: "region", dropInfo: true }), target: "clash", leakGuard: false };
 let last = null;
 
 export default function convert(root, ctx) {
@@ -20,14 +20,14 @@ export default function convert(root, ctx) {
     const s = ctx.state;
     patch(
       $("cv-form"),
-      html`<div class="card-title">来源与处理</div>
+      html`<div class="card-title" data-en="Sources">来源与处理</div>
         <label class="field"><span>订阅链接</span><textarea name="urls" spellcheck="false" placeholder="每行一个 http(s):// 链接">${draft.urls}</textarea></label>
         ${s.profiles.length
           ? html`<div class="field"><span>已有订阅</span><div class="chips">${s.profiles.map(
               (p) => html`<label class="chip"><input type="checkbox" name="profile" value="${p.id}" ${raw(draft.profiles.includes(p.id) ? "checked" : "")} />${p.name}</label>`
             )}</div></div>`
           : ""}
-        <label class="field"><span>粘贴内容</span><textarea name="text" spellcheck="false" placeholder="Clash / mihomo YAML、分享链接（可以是 Base64）、sing-box 配置、SIP008">${draft.text}</textarea></label>
+        <label class="field"><span>粘贴内容</span><textarea name="text" spellcheck="false" placeholder="Clash / mihomo YAML、分享链接（vless:// vmess:// trojan:// hy2:// tuic:// ss:// 等，可以是 Base64）、sing-box 配置、SIP008">${draft.text}</textarea></label>
         ${convertFields(draft.options, s.convert.templates)}
         <div class="field-row">
           <label class="field"><span>输出格式</span><select name="target">${s.convert.targets.map(([id, label]) => html`<option value="${id}" ${raw(draft.target === id ? "selected" : "")}>${label}</option>`)}</select></label>
@@ -41,12 +41,17 @@ export default function convert(root, ctx) {
   }
 
   function renderPreview(busy = false) {
-    if (busy) return patch($("cv-preview"), html`<div class="card-title">结果</div><div class="empty">转换中…</div>`);
-    if (!last) return patch($("cv-preview"), html`<div class="card-title">结果</div><div class="empty">填好来源后点「转换」</div>`);
+    if (busy) return patch($("cv-preview"), html`<div class="card-title" data-en="Result">结果</div><div class="empty">转换中…</div>`);
+    if (!last) return patch($("cv-preview"), html`<div class="card-title" data-en="Result">结果</div><div class="empty">填好来源后点「转换」</div>`);
     patch(
       $("cv-preview"),
-      html`<div class="card-title">结果</div>
+      html`<div class="card-title" data-en="Result">结果</div>
         <div class="preview-meta"><span><b>${last.count}</b> 个节点</span>${last.providers ? html`<span><b>${last.providers}</b> 个代理集合</span>` : ""}<span><b>${last.groups}</b> 个分组</span>${last.regions.map(([name, n]) => html`<span>${name} <b>${n}</b></span>`)}</div>
+        <dl class="stat-grid">
+          <dt>协议</dt><dd>${last.stats.protocols.map(([name, n]) => html`<span class="tag">${name} ${n}</span>`)}</dd>
+          ${last.stats.features.length ? html`<dt>特性</dt><dd>${last.stats.features.map(([name, n]) => html`<span class="tag">${name} ${n}</span>`)}</dd>` : ""}
+          <dt>内核</dt><dd>${last.stats.cores.map(([name, n]) => html`<span class="tag ${n < last.count ? "warn-tag" : ""}">${name} 能跑 ${n}/${last.count}</span>`)}</dd>
+        </dl>
         ${last.skipped.length || last.warnings.length
           ? html`<ul class="warn-list">${last.skipped.length ? html`<li>${last.skipped.length} 个节点无法写成分享链接：${last.skipped.slice(0, 5).join("、")}</li>` : ""}${last.warnings.map((w) => html`<li>${w}</li>`)}</ul>`
           : ""}

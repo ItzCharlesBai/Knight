@@ -22,7 +22,12 @@ function tlsOf(n, force = false) {
     tls.reality = { enabled: true, public_key: reality["public-key"] || "", short_id: reality["short-id"] || "" };
     if (!tls.utls) tls.utls = { enabled: true, fingerprint: "chrome" };
   }
-  if (isMap(n["ech-opts"]) && n["ech-opts"].enable) tls.ech = { enabled: true };
+  // ECH：mihomo 存的是 base64 的 ECHConfigList，sing-box 要 PEM
+  if (isMap(n["ech-opts"]) && n["ech-opts"].enable) {
+    tls.ech = { enabled: true };
+    if (n["ech-opts"].config) tls.ech.config = ["-----BEGIN ECH CONFIGS-----", n["ech-opts"].config, "-----END ECH CONFIGS-----"];
+    if (n["ech-opts"]["query-server-name"]) tls.ech.query_server_name = n["ech-opts"]["query-server-name"];
+  }
   return tls;
 }
 
@@ -56,7 +61,9 @@ function transportOf(n) {
     const o = n["http-opts"] || {};
     return { type: "http", method: o.method, path: list(o.path)[0] || "/", headers: o.headers };
   }
-  return { error: `sing-box 不支持 ${net} 传输` };
+  if (net === "quic") return { type: "quic" };
+  const names = { xhttp: "XHTTP", mkcp: "mKCP", kcp: "mKCP", mekya: "mekya" };
+  return { error: `sing-box 不支持 ${names[net] || net} 传输` };
 }
 
 const mbps = (v) => {
@@ -498,15 +505,17 @@ function buildDNS(settings, target, ctx) {
 
 // ============================== 主转换 ==============================
 // ctx: { providers: { proxy: {名字: 原文}, rule: {名字: 原文} }, ruleSetPath(tag) → 本地 .srs 路径（缺了返回空），
-//        sidecarBin: 搭配使用的内核路径（不让它进 TUN 绕回来）, version: sing-box 版本 }
+//        sidecarBins: 搭配内核的路径（不让它们进 TUN 绕回来）, version: sing-box 版本 }
 export function toSingBox(clash, settings, ctx = {}) {
   const logs = [];
   const warn = (message) => logs.push({ level: "warn", message });
   const needed = new Set();
   const ruleSets = [];
   const ruleSetPath = ctx.ruleSetPath || (() => "");
-  const version = String(ctx.version || "1.14.0").replace(/^v/, "");
-  const newer = (min) => version.split(".").map(Number).reduce((acc, n, i) => (acc !== 0 ? acc : n - (min.split(".").map(Number)[i] || 0)), 0) >= 0;
+  // 版本号可能带预发布后缀（1.15.0-alpha.1），只比较前三段
+  const nums = (v) => (/(\d+)\.(\d+)\.(\d+)/.exec(String(v)) || [0, 1, 14, 0]).slice(1, 4).map(Number);
+  const version = nums(ctx.version || "1.14.0");
+  const newer = (min) => version.reduce((acc, n, i) => (acc !== 0 ? acc : n - nums(min)[i]), 0) >= 0;
   const helpers = {
     supports: (feature) => (feature === "remove_client_subnet" ? newer("1.14.0") : true),
     ruleSet(tag) {
@@ -618,7 +627,7 @@ export function toSingBox(clash, settings, ctx = {}) {
   });
 
   const routeRules = [{ action: "sniff" }, { protocol: "dns", action: "hijack-dns" }];
-  if (ctx.sidecarBin) routeRules.push({ process_path: [ctx.sidecarBin], outbound: "DIRECT" });
+  if (ctx.sidecarBins && ctx.sidecarBins.length) routeRules.push({ process_path: ctx.sidecarBins, outbound: "DIRECT" });
   routeRules.push({ ip_is_private: true, outbound: "DIRECT" }, { clash_mode: "Direct", outbound: "DIRECT" }, { clash_mode: "Global", outbound: "GLOBAL" });
 
   let final = "DIRECT";

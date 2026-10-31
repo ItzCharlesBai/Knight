@@ -34,6 +34,8 @@ const nodes = NAMES.map((name, i) => ({ name, type: "ss", server: `s${i}.example
 
 test("地区识别：中英文、国旗、代码不误伤（RUS / Bus 不算美国）", () => {
   const got = NAMES.map((n) => (regionOf(n) || {}).code || "-");
+  assert.equal(regionOf("剩余流量：88.2 GB"), null); // GB 是流量单位，不是英国
+  assert.equal(regionOf("🇬🇧 London 01").code, "GB");
   assert.deepEqual(got, ["HK", "HK", "TW", "JP", "SG", "US", "-", "-", "US", "-"]);
   // 同一份正则交给 mihomo（Go）用时以 (?i) 开头
   assert.ok(goRegex("(?i)hk|港")[0].test("HK"));
@@ -58,6 +60,8 @@ test("节点处理：筛选、重命名、国旗、去重、排序、UDP / 证�
   assert.equal(names.at(-1), "Bus-8"); // 认不出地区的排最后，也不加国旗
   assert.ok(proxies.every((p) => p.udp === true));
   assert.throws(() => processNodes(nodes, { include: "(" }), /正则写错了/);
+  const info = processNodes(nodes, { dropInfo: true });
+  assert.ok(info.removed.has("剩余流量 1G") && info.proxies.length === nodes.length - 1);
 });
 
 test("模板：按地区 / 全面分流生成分组，空地区不建组；保持原样时同步改名", () => {
@@ -113,7 +117,7 @@ test("sing-box 节点：TLS / Reality / 传输方式 / 插件；不支持的给�
   assert.equal(obfs.plugin_opts, "obfs=tls;obfs-host=b.com");
   assert.equal(obfs.network, "tcp");
   assert.match(toOutbound({ name: "S", type: "ssr", server: "a", port: 1 }).error, /ssr/);
-  assert.match(toOutbound({ name: "X", type: "vless", server: "a", port: 1, uuid: "u", network: "xhttp" }).error, /xhttp/);
+  assert.match(toOutbound({ name: "X", type: "vless", server: "a", port: 1, uuid: "u", network: "xhttp" }).error, /XHTTP/);
   const wg = toOutbound({ name: "WG", type: "wireguard", server: "w", port: 51820, ip: "10.0.0.2", "private-key": "k", "public-key": "p" });
   assert.deepEqual(wg.endpoint.address, ["10.0.0.2/32"]);
   assert.equal(fromOutbound(vless)["reality-opts"]["public-key"], "K");
@@ -183,13 +187,16 @@ test("sing-box：IPv6 策略、关闭防泄露、规则集合与代理集合的�
 
 test("搭配使用：主内核不支持的节点交给另一个内核，换成本地 SOCKS 入口", () => {
   const profile = parseSubscription("naive+https://u:p@n.example.com:443#NV\ntrojan://pw@t.example.com:443#TJ").config;
+  const SB = { id: "sing-box", kind: "singbox", bin: "/opt/sb/sing-box", label: "sing-box" };
+  const MH = { id: "mihomo", kind: "clash", bin: "/opt/m/mihomo", label: "mihomo" };
+  const XR = { id: "xray", kind: "xray", bin: "/opt/x/xray", label: "Xray" };
   // mihomo 主内核 + sing-box 搭配
-  const r = generate({ profile, settings: settings({ sidecarPort: 7930 }), scriptSource: SCRIPT, core: { id: "mihomo", kind: "clash" }, sidecar: { kind: "singbox", bin: "/opt/sb/sing-box" } });
+  const r = generate({ profile, settings: settings({ sidecarPort: 7930 }), scriptSource: SCRIPT, core: { id: "mihomo", kind: "clash" }, sidecars: [SB] });
   const nv = r.config.proxies.find((p) => p.name === "NV");
   assert.deepEqual(nv, { name: "NV", type: "socks5", server: "127.0.0.1", port: 7930, udp: true });
   assert.equal(r.config.rules[0], "PROCESS-PATH,/opt/sb/sing-box,DIRECT");
   assert.equal(r.config["find-process-mode"], "strict");
-  const side = JSON.parse(r.sidecar.text);
+  const side = JSON.parse(r.sidecars[0].text);
   assert.equal(side.outbounds[0].type, "naive");
   assert.deepEqual(side.route.rules, [{ inbound: ["in-0"], outbound: "NV" }]);
   // 没有可搭配的内核：去掉节点，分组里的引用也去掉
@@ -199,13 +206,88 @@ test("搭配使用：主内核不支持的节点交给另一个内核，换成�
   assert.ok(alone.logs.some((l) => /不支持，已跳过/.test(l.message)));
   // sing-box 主内核 + mihomo 搭配跑 SSR
   const ssr = { proxies: [{ name: "SSR", type: "ssr", server: "s", port: 1, cipher: "aes-256-cfb", password: "p", protocol: "origin", obfs: "plain" }], "proxy-groups": [{ name: "G", type: "select", proxies: ["SSR"] }], rules: ["MATCH,G"] };
-  const split = splitNodes(ssr, "singbox", { sidecarKind: "clash", basePort: 7897, reserved: [7897] });
+  const split = splitNodes(ssr, "singbox", { sidecars: [MH], basePort: 7897, reserved: [7897] });
   assert.equal(split.entries[0].port, 7898); // 跳过已占用的端口
-  const sb = generate({ profile: ssr, settings: settings({ core: "sing-box" }), scriptSource: SCRIPT, core: { id: "sing-box", kind: "singbox" }, sidecar: { kind: "clash", bin: "/opt/m/mihomo" }, singbox: allSets });
+  const sb = generate({ profile: ssr, settings: settings({ core: "sing-box" }), scriptSource: SCRIPT, core: { id: "sing-box", kind: "singbox" }, sidecars: [MH, XR], singbox: allSets });
   const c = JSON.parse(sb.text);
   assert.deepEqual(c.outbounds.find((o) => o.tag === "SSR"), { type: "socks", tag: "SSR", server: "127.0.0.1", server_port: 7920, version: "5" });
   assert.ok(c.route.rules.some((x) => x.process_path && x.process_path[0] === "/opt/m/mihomo"));
-  assert.match(sb.sidecar.text, /listeners:/);
+  assert.match(sb.sidecars[0].text, /listeners:/);
+  assert.equal(sb.sidecars.length, 1); // Xray 用不上就不启动
+});
+
+test("Xray 搭配：VLESS REALITY / XHTTP 交给 Xray；跳过证书验证的不交给 Xray", () => {
+  const links = [
+    "vless://0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3@r.example.com:443?security=reality&sni=www.apple.com&fp=chrome&pbk=jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0&sid=ab&spx=%2Fsp&pqv=PQ&flow=xtls-rprx-vision&type=tcp#R",
+    "vless://0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3@x.example.com:443?security=tls&sni=x.example.com&type=xhttp&path=%2Fxh&mode=packet-up&extra=" + encodeURIComponent(JSON.stringify({ xPaddingBytes: "100-1000" })) + "#XH",
+    "vless://0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3@i.example.com:443?security=tls&sni=i.example.com&allowInsecure=1&type=ws&path=%2Fws#INSECURE",
+    "trojan://pw@t.example.com:443#TJ",
+  ];
+  const profile = parseSubscription(links.join("\n")).config;
+  const XR = { id: "xray", kind: "xray", bin: "/opt/x/xray", label: "Xray" };
+  // mihomo 主内核：REALITY 指定交给 Xray，其余 mihomo 自己跑
+  const r = generate({ profile, settings: settings({ xrayFor: "reality" }), scriptSource: SCRIPT, core: { id: "mihomo", kind: "clash" }, sidecars: [XR] });
+  assert.deepEqual(r.sidecars.map((p) => [p.id, p.entries]), [["xray", 1]]);
+  const x = JSON.parse(r.sidecars[0].text);
+  const out = x.outbounds[0];
+  assert.equal(out.protocol, "vless");
+  assert.deepEqual(out.settings, { address: "r.example.com", port: 443, id: "0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3", encryption: "none", flow: "xtls-rprx-vision" });
+  assert.equal(out.streamSettings.security, "reality");
+  assert.equal(out.streamSettings.realitySettings.spiderX, "/sp");
+  assert.equal(out.streamSettings.realitySettings.mldsa65Verify, "PQ");
+  assert.deepEqual(x.routing.rules, [{ inboundTag: ["in-0"], outboundTag: "out-0" }]);
+  assert.equal(r.config.rules[0], "PROCESS-PATH,/opt/x/xray,DIRECT");
+  // 全部 VLESS 交给 Xray：XHTTP 也去，但跳过证书验证的 Xray 跑不了，留给 mihomo
+  const all = generate({ profile, settings: settings({ xrayFor: "vless" }), scriptSource: SCRIPT, core: { id: "mihomo", kind: "clash" }, sidecars: [XR] });
+  const names = JSON.parse(all.sidecars[0].text).outbounds.map((o) => o.protocol + ":" + (o.streamSettings ? o.streamSettings.network : ""));
+  assert.deepEqual(names, ["vless:tcp", "vless:xhttp", "freedom:"]);
+  const xh = JSON.parse(all.sidecars[0].text).outbounds[1].streamSettings.xhttpSettings;
+  assert.deepEqual(xh, { path: "/xh", mode: "packet-up", extra: { xPaddingBytes: "100-1000" } });
+  assert.equal(all.config.proxies.find((p) => p.name === "INSECURE").type, "vless");
+  // sing-box 主内核：XHTTP sing-box 跑不了，自动交给 Xray
+  const sb = generate({ profile, settings: settings({ core: "sing-box" }), scriptSource: SCRIPT, core: { id: "sing-box", kind: "singbox" }, sidecars: [XR], singbox: allSets });
+  assert.equal(JSON.parse(sb.sidecars[0].text).outbounds[0].streamSettings.network, "xhttp");
+});
+
+test("VLESS：XHTTP / REALITY / 加密 / ECH 等参数解析完整，导出再导入一致；sing-box 跑不了的给出原因", () => {
+  const extra = JSON.stringify({ xPaddingBytes: "100-1000", xmux: { maxConcurrency: "16-32" } });
+  const link =
+    "vless://0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3@a.example.com:443?encryption=mlkem768x25519plus.native.0rtt.abc&flow=xtls-rprx-vision&security=reality&sni=www.apple.com&fp=safari&pbk=KEY&sid=ab&spx=%2Fsp&pqv=PQ" +
+    "&type=xhttp&path=%2Fxh&host=a.example.com&mode=stream-one&extra=" + encodeURIComponent(extra) + "&packetEncoding=xudp#XH";
+  const [n] = parseSubscription(link).config.proxies;
+  assert.equal(n.encryption, "mlkem768x25519plus.native.0rtt.abc");
+  assert.equal(n.network, "xhttp");
+  assert.deepEqual(n["reality-opts"], { "public-key": "KEY", "short-id": "ab", "spider-x": "/sp", "mldsa65-verify": "PQ" });
+  assert.equal(n["xhttp-opts"].mode, "stream-one");
+  assert.equal(n["xhttp-opts"]["x-padding-bytes"], "100-1000");
+  assert.deepEqual(n["xhttp-opts"]["reuse-settings"], { "max-concurrency": "16-32" });
+  assert.equal(n["packet-encoding"], "xudp");
+  const again = parseSubscription(toLinks([n]).text).config.proxies[0];
+  assert.deepEqual(again, n);
+  assert.match(toOutbound(n).error, /XHTTP/);
+  const ech = parseSubscription("trojan://pw@e.example.com:443?sni=e.example.com&ech=AEn%2BDQ#E").config.proxies[0];
+  assert.deepEqual(ech["ech-opts"], { enable: true, config: "AEn+DQ" });
+  assert.deepEqual(toOutbound(ech).outbound.tls.ech.config, ["-----BEGIN ECH CONFIGS-----", "AEn+DQ", "-----END ECH CONFIGS-----"]);
+});
+
+test("其他客户端：Surge / Quantumult X / Loon 节点列表，统计协议与各内核兼容数", () => {
+  const cfg = parseSubscription(
+    [
+      "vless://0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3@r.example.com:443?security=reality&sni=www.apple.com&fp=chrome&pbk=KEY&sid=ab&flow=xtls-rprx-vision&type=tcp#R",
+      "trojan://pw@t.example.com:443?sni=t.example.com#T",
+      "hysteria2://pw@h.example.com:443?sni=h.example.com#H",
+    ].join("\n")
+  ).config;
+  const surge = convert([{ label: "a", config: cfg }], { target: "surge" });
+  assert.deepEqual(surge.skipped, ["R"]); // Surge 不支持 VLESS
+  assert.match(surge.text, /^T = trojan, t.example.com, 443, password=pw, sni=t.example.com$/m);
+  const quanx = convert([{ label: "a", config: cfg }], { target: "quanx" });
+  assert.match(quanx.text, /^vless=r.example.com:443, method=none, password=0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3, obfs=over-tls, .*reality-base64-pubkey=KEY, reality-hex-shortid=ab, tag=R$/m);
+  const loon = convert([{ label: "a", config: cfg }], { target: "loon" });
+  assert.match(loon.text, /^R = VLESS,r.example.com,443,"0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3",transport=tcp,flow=xtls-rprx-vision,public-key="KEY",short-id=ab,over-tls=true/m);
+  assert.deepEqual(surge.stats.protocols, [["VLESS", 1], ["Trojan", 1], ["Hysteria2", 1]]);
+  assert.deepEqual(surge.stats.cores, [["mihomo", 3], ["sing-box", 3], ["Xray", 2]]);
+  assert.equal(convert([{ label: "a", config: cfg }], { target: "links", options: { types: "vless" } }).count, 1);
 });
 
 test("订阅转换页：多来源合并、模板、各种输出格式", () => {
@@ -297,4 +379,19 @@ test("sing-box check：转换出的配置", { skip: !singbox && "未设置 SINGB
   check("leak.json", JSON.stringify(toSingBox(generate({ profile: SUB, settings: settings({ tun: { enable: true } }), scriptSource: SCRIPT }).config, settings({ tun: { enable: true } }), remote).config));
   check("full.json", convert([{ label: "A", config: { proxies: nodes } }], { options: { template: "full" }, target: "singbox", leakGuard: true, scriptSource: SCRIPT }).text);
   check("sidecar.json", sidecarConfig("singbox", [{ node: { name: "NV", type: "naive", server: "n.example.com", port: 443, username: "u", password: "p" }, port: 7932 }]));
+});
+
+const xrayBin = process.env.XRAY_BIN;
+test("xray run -test：搭配用的 Xray 配置", { skip: !xrayBin && "未设置 XRAY_BIN" }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "knight-xray-"));
+  const nodes = parseSubscription(
+    [
+      "vless://0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3@r.example.com:443?security=reality&sni=www.apple.com&fp=chrome&pbk=jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0&sid=ab&spx=%2F&flow=xtls-rprx-vision&type=tcp#R",
+      "vless://0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3@x.example.com:443?security=tls&sni=x.example.com&type=xhttp&path=%2Fxh&mode=auto#XH",
+      "trojan://pw@t.example.com:443?sni=t.example.com&type=ws&path=%2Fws#TJ",
+    ].join("\n")
+  ).config.proxies;
+  const file = join(dir, "xray.json");
+  writeFileSync(file, sidecarConfig("xray", nodes.map((node, i) => ({ node, port: 7940 + i }))));
+  execFileSync(xrayBin, ["run", "-test", "-c", file], { encoding: "utf8", timeout: 60000 });
 });

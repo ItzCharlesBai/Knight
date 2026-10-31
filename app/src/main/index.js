@@ -45,7 +45,7 @@ function main() {
   }
   const store = new Store(join(userDir, "settings.json"));
   const settings = () => store.get();
-  if (!CORES[settings().core]) store.set({ core: "mihomo" });
+  if (!CORES[settings().core] || CORES[settings().core].sidecarOnly) store.set({ core: "mihomo" });
   const profiles = new Profiles(join(userDir, "profiles"), (url, opts) => httpFetch(url, opts));
 
   // ---------------- 内核实例 ----------------
@@ -58,8 +58,8 @@ function main() {
   const mainWorkDir = (id) => join(userDir, coreKind(id) === "singbox" ? "sing-box" : "mihomo");
   const ruleSetDir = join(userDir, "sing-box", "rule-sets");
   let core = null;
-  let side = null;
-  let sideText = "";
+  const sides = new Map(); // 搭配内核：id → Core
+  const sideTexts = new Map(); // id → 上次应用的配置，没变就不重启
 
   function useCore(id) {
     if (core) core.removeAllListeners("status");
@@ -67,11 +67,12 @@ function main() {
     core.on("status", onCoreStatus);
     return core;
   }
-  // 可以搭配的另一种内核（已下载的）：主内核是 mihomo 系 → sing-box；主内核是 sing-box → mihomo 系里已下载的那个
-  function sidecarCandidate() {
-    const want = core.kind === "singbox" ? ["mihomo", "mihomo-alpha", "mihomo-smart"] : ["sing-box"];
-    const id = want.find((x) => existsSync(binPath(x)));
-    return id ? { id, kind: coreKind(id), bin: binPath(id) } : null;
+  // 可以搭配的内核（已下载的），按优先顺序：另一种内核里已下载的第一个，再加上 Xray
+  function sidecarCandidates() {
+    const other = core.kind === "singbox" ? ["mihomo", "mihomo-alpha", "mihomo-smart"] : ["sing-box", "sing-box-beta"];
+    return [other.find((x) => existsSync(binPath(x))), existsSync(binPath("xray")) ? "xray" : null]
+      .filter(Boolean)
+      .map((id) => ({ id, kind: coreKind(id), bin: binPath(id), label: CORES[id].label }));
   }
   const installedVersion = (id) => {
     try {
@@ -155,7 +156,7 @@ function main() {
       mergeSource: readExtension("merge.yaml"),
       profileName: current ? current.name : "",
       core: { id: core.id, kind: core.kind },
-      sidecar: s.combine ? sidecarCandidate() : null,
+      sidecars: sidecarCandidates(),
       singbox: {
         providers: current ? profiles.providerCache(current.id) : {},
         ruleSetPath: (tag) => (existsSync(ruleSetFile(tag)) ? ruleSetFile(tag) : ""),
@@ -236,38 +237,44 @@ function main() {
       await core.restart();
       await core.waitReady(api);
     }
-    await applySidecar(result.sidecar).catch((err) => {
-      lastApply.logs = lastApply.logs.concat({ source: "Knight", level: "error", message: "搭配内核启动失败：" + err.message });
-    });
+    await applySidecars(result.sidecars);
     pushState();
   }
 
-  async function applySidecar(plan) {
-    const candidate = plan ? sidecarCandidate() : null;
-    if (!plan || !candidate) {
-      sideText = "";
-      if (side) await side.stop();
-      side = null;
-      return;
+  // 按计划启动 / 重启 / 停止搭配内核；某个启动失败不影响其他的，错误写进日志
+  async function applySidecars(plans) {
+    const wanted = new Set(plans.map((p) => p.id));
+    for (const [id, sc] of sides) {
+      if (wanted.has(id)) continue;
+      await sc.stop();
+      sides.delete(id);
+      sideTexts.delete(id);
     }
-    if (!side || side.id !== candidate.id) {
-      if (side) await side.stop();
-      side = makeCore(candidate.id, join(userDir, "sidecar-" + candidate.kind));
-      side.on("status", () => pushState());
+    for (const plan of plans) {
+      try {
+        let sc = sides.get(plan.id);
+        if (!sc) {
+          sc = makeCore(plan.id, join(userDir, "sidecar-" + plan.id));
+          sc.on("status", () => pushState());
+          sides.set(plan.id, sc);
+        }
+        if (sideTexts.get(plan.id) === plan.text && sc.proc) continue;
+        const next = sc.configFile.replace(/\.(yaml|json)$/, ".next.$1");
+        writeFileSync(next, plan.text);
+        const error = await sc.test(next);
+        if (error) {
+          rmSync(next, { force: true });
+          throw new Error(error);
+        }
+        renameSync(next, sc.configFile);
+        sideTexts.set(plan.id, plan.text);
+        await sc.restart();
+        // 搭配内核没有控制接口：进程活着就算运行中
+        setTimeout(() => sc.proc && sc.setStatus("running"), 800);
+      } catch (err) {
+        lastApply.logs = lastApply.logs.concat({ source: "Knight", level: "error", message: `搭配内核 ${CORES[plan.id].label} 启动失败：${err.message}` });
+      }
     }
-    if (plan.text === sideText && side.proc) return;
-    const next = side.configFile.replace(/\.(yaml|json)$/, ".next.$1");
-    writeFileSync(next, plan.text);
-    const error = await side.test(next);
-    if (error) {
-      rmSync(next, { force: true });
-      throw new Error(error);
-    }
-    renameSync(next, side.configFile);
-    sideText = plan.text;
-    await side.restart();
-    // 搭配内核没有控制接口：进程活着就算运行中
-    setTimeout(() => side && side.proc && side.setStatus("running"), 800);
   }
 
   // ---------------- 系统代理 ----------------
@@ -307,8 +314,8 @@ function main() {
       profiles: profiles.list().map((p) => Object.assign({}, p, { updating: busy.has(p.id), sources: p.type === "combo" ? p.sources.map((x) => (x.type === "text" ? { type: "text" } : x)) : undefined })),
       groups: s.currentProfile ? profiles.groups(s.currentProfile) : [],
       core: { id: core.id, kind: core.kind, label: core.spec.label, status: core.status, error: core.error, version: core.version(), installed: core.installed(), caps: CAPS[core.kind] },
-      cores: CORE_IDS.map((id) => ({ id, label: CORES[id].label, desc: CORES[id].desc, kind: CORES[id].kind, version: installedVersion(id), installed: existsSync(binPath(id)), downloading: downloading.has(id) })),
-      sidecar: side ? { id: side.id, label: side.spec.label, status: side.status, error: side.error } : null,
+      cores: CORE_IDS.map((id) => ({ id, label: CORES[id].label, desc: CORES[id].desc, kind: CORES[id].kind, sidecarOnly: !!CORES[id].sidecarOnly, version: installedVersion(id), installed: existsSync(binPath(id)), downloading: downloading.has(id) })),
+      sidecars: [...sides.values()].map((sc) => ({ id: sc.id, label: sc.spec.label, status: sc.status, error: sc.error })),
       controller: controller(),
       apply: lastApply,
       tunPermission,
@@ -339,12 +346,13 @@ function main() {
   const toast = (message, type = "info") => win && !win.isDestroyed() && win.webContents.send("toast", { message, type });
 
   // ---------------- 设置变更 ----------------
-  const RELOAD_KEYS = ["core", "combine", "sidecarPort", "smartGroups", "mixedPort", "controllerPort", "allowLan", "ipv6", "unifiedDelay", "findProcess", "tun", "leakGuard", "useMerge", "customRules", "customScript", "currentProfile", "delayUrl"];
+  const RELOAD_KEYS = ["core", "combine", "sidecarPort", "xrayFor", "smartGroups", "mixedPort", "controllerPort", "allowLan", "ipv6", "unifiedDelay", "findProcess", "tun", "leakGuard", "useMerge", "customRules", "customScript", "currentProfile", "delayUrl"];
 
   async function setSettings(patch) {
     const before = settings();
     if (patch.core && patch.core !== before.core) {
       if (!CORES[patch.core]) throw new Error("未知内核");
+      if (CORES[patch.core].sidecarOnly) throw new Error(`${CORES[patch.core].label} 没有控制接口，只能搭配使用`);
       if (!existsSync(binPath(patch.core))) throw new Error(`还没有下载 ${CORES[patch.core].label}，请先在内核列表里下载`);
     }
     if (patch.tun && patch.tun.enable && !before.tun.enable) {
@@ -481,16 +489,16 @@ function main() {
       const { version, files } = await downloadCore({ id, version: latest, fetch: fetchFn, mirror });
       // 正在用的内核（主内核或搭配内核）要先停下才能替换文件
       const isMain = core.id === id;
-      const isSide = side && side.id === id;
+      const sc = sides.get(id);
       if (isMain) await core.stop();
-      if (isSide) await side.stop();
-      (isMain ? core : isSide ? side : makeCore(id, mainWorkDir(id))).replaceBinary(files, version);
+      if (sc) await sc.stop();
+      (isMain ? core : sc || makeCore(id, mainWorkDir(id))).replaceBinary(files, version);
       if (isMain) {
         tunPermission = await core.hasTunPermission();
         if (settings().tun.enable && !tunPermission) store.set({ tun: { enable: false } }); // 新内核需要重新授权
       }
-      sideText = "";
-      if (isMain || isSide || settings().combine) await applyConfig().catch(() => {});
+      sideTexts.delete(id);
+      if (isMain || sc || settings().combine) await applyConfig().catch(() => {});
       return { version, updated: true };
     } finally {
       downloading.delete(id);
@@ -583,7 +591,7 @@ function main() {
       return adopt(await profiles.addCombo({ name, sources: list, convert: options }));
     },
     runtimeConfig: () => (existsSync(core.configFile) ? readFileSync(core.configFile, "utf8") : ""),
-    coreLog: () => core.output.slice(-200).concat(side ? ["", `—— 搭配内核 ${side.spec.label} ——`, ...side.output.slice(-80)] : []),
+    coreLog: () => core.output.slice(-200).concat(...[...sides.values()].map((sc) => ["", `—— 搭配内核 ${sc.spec.label} ——`, ...sc.output.slice(-80)])),
     restartCore: async () => {
       await core.restart();
       await core.waitReady(api);
@@ -686,7 +694,7 @@ function main() {
     tray.setToolTip(`Knight · ${core.spec.label} · ${MODES[s.mode]}模式` + (sysproxyOn ? " · 系统代理" : "") + (s.tun.enable ? " · 虚拟网卡" : "") + (core.status === "running" ? "" : " · 内核未运行"));
     const toggle = (patch) => setSettings(patch).catch((err) => (err.message === "NEED_TUN_PERMISSION" ? showWindow("settings") : toast(err.message, "error")));
     const current = profiles.get(s.currentProfile);
-    const installed = CORE_IDS.filter((id) => existsSync(binPath(id)));
+    const installed = CORE_IDS.filter((id) => !CORES[id].sidecarOnly && existsSync(binPath(id)));
     const menu = Menu.buildFromTemplate([
       { label: "打开 Knight", click: () => showWindow() },
       { type: "separator" },
@@ -717,7 +725,7 @@ function main() {
   async function cleanup() {
     if (sysproxyOn) await setSystemProxy(false, {}).catch(() => {});
     sysproxyOn = false;
-    await Promise.all([core.stop().catch(() => {}), side ? side.stop().catch(() => {}) : null]);
+    await Promise.all([core.stop().catch(() => {}), ...[...sides.values()].map((sc) => sc.stop().catch(() => {}))]);
   }
 
   async function quit() {

@@ -12,24 +12,63 @@ function query(params) {
   return q ? "?" + q : "";
 }
 
+// mihomo 的 xhttp-opts → Xray 分享链接里的 extra（导入时原样保留过的直接用）
+function xhttpExtra(o) {
+  if (o["xray-extra"]) return o["xray-extra"];
+  const extra = {};
+  if (o.headers) extra.headers = o.headers;
+  if (o["no-grpc-header"]) extra.noGRPCHeader = true;
+  if (o["x-padding-bytes"]) extra.xPaddingBytes = o["x-padding-bytes"];
+  if (o["sc-max-each-post-bytes"]) extra.scMaxEachPostBytes = o["sc-max-each-post-bytes"];
+  if (o["sc-min-posts-interval-ms"]) extra.scMinPostsIntervalMs = o["sc-min-posts-interval-ms"];
+  const r = o["reuse-settings"];
+  if (r) {
+    extra.xmux = {};
+    for (const [k, v] of Object.entries({ "max-concurrency": "maxConcurrency", "max-connections": "maxConnections", "c-max-reuse-times": "cMaxReuseTimes", "h-max-request-times": "hMaxRequestTimes", "h-max-reusable-secs": "hMaxReusableSecs", "h-keep-alive-period": "hKeepAlivePeriod" })) {
+      if (r[k] !== undefined) extra.xmux[v] = r[k];
+    }
+  }
+  return Object.keys(extra).length ? JSON.stringify(extra) : undefined;
+}
+
 function transportParams(n) {
   const net = n.network || "tcp";
   const ws = n["ws-opts"] || {};
-  const p = { type: net === "h2" ? "http" : net };
+  const p = { type: net === "h2" ? "http" : net === "mkcp" ? "kcp" : net === "http" ? "tcp" : net };
   if (net === "ws") {
     if (ws["v2ray-http-upgrade"]) p.type = "httpupgrade";
     p.path = ws.path;
     p.host = (ws.headers || {}).Host;
-  } else if (net === "grpc") p.serviceName = (n["grpc-opts"] || {})["grpc-service-name"];
-  else if (net === "h2") {
+  } else if (net === "grpc") {
+    const g = n["grpc-opts"] || {};
+    p.serviceName = g["grpc-service-name"];
+    if (g["grpc-mode"] === "multi") p.mode = "multi";
+    p.authority = g.authority;
+  } else if (net === "h2") {
     p.path = (n["h2-opts"] || {}).path;
     p.host = [].concat((n["h2-opts"] || {}).host || []).join(",");
+  } else if (net === "http") {
+    const h = n["http-opts"] || {};
+    p.headerType = "http";
+    p.path = [].concat(h.path || [])[0];
+    p.host = [].concat((h.headers || {}).Host || []).join(",");
+  } else if (net === "xhttp") {
+    const x = n["xhttp-opts"] || {};
+    p.path = x.path;
+    p.host = x.host;
+    p.mode = x.mode;
+    p.extra = xhttpExtra(x);
+  } else if (net === "mkcp") {
+    const k = n["mkcp-opts"] || {};
+    p.headerType = k.header;
+    p.seed = k.seed;
   }
   return p;
 }
 
 function tlsParams(n, sniKey = "servername") {
   const reality = n["reality-opts"];
+  const ech = n["ech-opts"];
   return {
     security: reality ? "reality" : n.tls || n.type === "trojan" ? "tls" : undefined,
     sni: n[sniKey] || n.sni || n.servername,
@@ -38,6 +77,9 @@ function tlsParams(n, sniKey = "servername") {
     allowInsecure: n["skip-cert-verify"] ? "1" : undefined,
     pbk: reality && reality["public-key"],
     sid: reality && reality["short-id"],
+    spx: reality && reality["spider-x"],
+    pqv: reality && reality["mldsa65-verify"],
+    ech: ech && ech.enable && ech.config ? ech.config : undefined,
   };
 }
 
@@ -67,10 +109,10 @@ export function toLink(n) {
             id: n.uuid,
             aid: String(n.alterId || 0),
             scy: n.cipher || "auto",
-            net: t.type === "httpupgrade" ? "httpupgrade" : t.type,
-            type: "none",
+            net: t.type,
+            type: t.headerType || "none",
             host: t.host || "",
-            path: t.path || t.serviceName || "",
+            path: t.path || t.serviceName || t.seed || "",
             tls: n.tls ? "tls" : "",
             sni: n.servername || "",
             alpn: [].concat(n.alpn || []).join(","),
@@ -80,7 +122,7 @@ export function toLink(n) {
       );
     }
     case "vless":
-      return `vless://${enc(n.uuid)}@${at}${query(Object.assign({ encryption: "none", flow: n.flow }, tlsParams(n), transportParams(n)))}${name}`;
+      return `vless://${enc(n.uuid)}@${at}${query(Object.assign({ encryption: n.encryption || "none", flow: n.flow, packetEncoding: n["packet-encoding"] }, tlsParams(n), transportParams(n)))}${name}`;
     case "trojan":
       return `trojan://${enc(n.password)}@${at}${query(Object.assign(tlsParams(n, "sni"), transportParams(n)))}${name}`;
     case "hysteria2":

@@ -1,8 +1,9 @@
 # Knight 客户端
 
-简洁的代理客户端（Windows / macOS / Linux），可选 **mihomo** 或 **sing-box** 内核，内置本仓库的防泄露方案（[`clash-verge-rev/script.js`](../clash-verge-rev/script.js)）和**订阅转换**。
+代理客户端（Windows / macOS / Linux），可选 **mihomo**、**sing-box** 内核，**Xray** 可以搭配运行 VLESS 节点；内置本仓库的防泄露方案（[`clash-verge-rev/script.js`](../clash-verge-rev/script.js)）和**订阅转换**。
 
-- 界面：简洁的英伦风格。标题用 Baskerville，侧栏是牛津蓝，正文用系统字体。中文标题配 Noto Serif SC，字体都随应用打包，不同系统看到的效果一样。有浅色和深色两种外观
+- 界面：包豪斯 × 日式电影海报 × 英伦。米色海报纸面、朱红太阳、蓝黄原色点缀，圆润的胶囊按钮和卡片；标题用 Baskerville 和 Noto Serif SC，页头有「No.01 — OVERVIEW」式的编号，侧栏有竖排小字。字体随应用打包（SIL OFL），不同系统效果一样。有浅色和深色（夜场海报）两种外观
+- 图标：包豪斯构图——米色底、朱红太阳、黄色四分之一圆、蓝色底座，骑士用曲线勾出
 - 内核：自带 mihomo，其他内核在 设置 → 内核 里一键下载，随时切换
 - 订阅链接只在本机下载和转换，不会发给任何在线转换服务
 
@@ -14,15 +15,18 @@
 | mihomo Alpha | MetaCubeX 测试版，新协议、新功能先到 |
 | mihomo Smart | 第三方分支（vernesong），多一种 Smart 分组：按实际使用情况自动挑节点。打开「Smart 分组」后，订阅里的自动选择分组会换成 Smart 分组 |
 | sing-box | SagerNet 的另一套实现，支持 NaiveProxy。sing-box 读不了 Clash 配置，订阅、分组、规则和防泄露设置由 Knight 自动转换（见下文） |
+| sing-box 测试版 | sing-box 最新的预发布版本（alpha / beta），转换方式和正式版相同 |
+| Xray | XTLS 官方实现，VLESS / XHTTP / REALITY 的参考内核。没有 Clash 控制接口，**只作搭配**：可以让它专门运行 VLESS 节点 |
 
 ### 搭配使用
 
 两种内核支持的协议不完全一样。打开 设置 → 内核 →「搭配使用」（默认打开）后，当前内核跑不了的节点会交给另一个已下载的内核：
 
 - 用 mihomo 时，NaiveProxy 节点交给 sing-box；
-- 用 sing-box 时，SSR、Snell、Mieru 等节点交给 mihomo。
+- 用 sing-box 时，SSR、Snell、Mieru、XHTTP、VLESS 加密等节点交给 mihomo 或 Xray；
+- 下载了 Xray 后，还可以在「交给 Xray 的节点」里选 **VLESS REALITY 节点**或**全部 VLESS 节点**。mihomo 官方说明不再兼容 Xray v26.7.11 以后服务端的 REALITY，遇到 REALITY 节点连不上时打开这一项即可。Xray 已经去掉了跳过证书验证，开了跳过证书验证的节点仍由主内核运行
 
-另一个内核在 127.0.0.1 上为每个这样的节点开一个 SOCKS 入口（从「搭配端口」7920 起），主内核里的这个节点会换成指向该入口的 SOCKS 节点。分组、规则、测速都不变，防泄露规则也照常生效。搭配内核自己连接节点的流量会被设成直连，不会再经过虚拟网卡绕回主内核。
+可以同时有多个搭配内核（例如 sing-box 跑 Naive、Xray 跑 REALITY）。搭配内核在 127.0.0.1 上为每个这样的节点开一个 SOCKS 入口（从「搭配端口」7920 起），主内核里的这个节点会换成指向该入口的 SOCKS 节点。分组、规则、测速都不变，防泄露规则也照常生效。搭配内核自己连接节点的流量会被设成直连，不会再经过虚拟网卡绕回主内核。
 
 没有可搭配的内核时，这些节点会被跳过，日志里会提示是哪些节点。
 
@@ -39,10 +43,26 @@
 
 左侧导航的「转换」页：
 
-1. **来源**：订阅链接（可以填多个）、已有订阅、直接粘贴内容。粘贴的内容可以是 Clash / mihomo YAML、分享链接（ss / ssr / vmess / vless / trojan / hysteria / hysteria2 / tuic / anytls / naive / wireguard / socks / http，Base64 或逐行明文都行）、sing-box 配置或 SIP008
-2. **处理**：只保留 / 排除（正则）、重命名（每行 `原文 => 替换`）、加国旗、去重、排序、统一开启 UDP、跳过证书验证
+1. **来源**：订阅链接（可以填多个）、已有订阅、直接粘贴内容。粘贴的内容可以是 Clash / mihomo YAML、分享链接（vless / vmess / trojan / ss / ssr / hysteria / hysteria2 / tuic / anytls / naive / wireguard / socks / http，Base64 或逐行明文都行）、sing-box 配置或 SIP008
+2. **处理**：只保留 / 排除（正则）、**只要某些协议**（比如只留 VLESS 和 Trojan）、去掉信息节点、重命名（每行 `原文 => 替换`）、加国旗、去重、排序、统一开启 UDP、跳过证书验证
 3. **分组模板**：保持原样、简洁、按地区（香港、台湾、日本、新加坡、美国、韩国、英国、德国、其他地区，各建一个自动选择分组），以及全面分流（再加上 AI 服务、流媒体、Telegram、苹果、微软、游戏、广告拦截）
-4. **输出**：mihomo / Clash 配置、sing-box 配置、仅节点列表、分享链接（Base64 订阅或逐行明文），可以选择带上防泄露设置。结果可以复制、导出文件，或者**保存为订阅**
+4. **输出**：mihomo / Clash 配置、sing-box 配置、仅节点列表、分享链接（Base64 订阅给 v2rayN / Shadowrocket 等，或逐行明文），以及 **Surge、Quantumult X、Loon 的节点列表**；可以选择带上防泄露设置。结果可以复制、导出文件，或者**保存为订阅**
+5. **预览**：节点数、地区分布、各协议数量、VLESS 等协议的特性（REALITY、Vision、XHTTP、gRPC、VLESS 加密、ECH），以及 mihomo / sing-box / Xray 各能跑多少个
+
+### VLESS
+
+VLESS 链接的参数都会完整保留：`encryption`（VLESS 加密）、`flow`（Vision）、`security=tls / reality`、`sni`、`fp`、`alpn`、`allowInsecure`、`pbk` / `sid` / `spx` / `pqv`（REALITY 的公钥、short id、spiderX、ML-DSA-65 校验）、`ech`、`packetEncoding`，以及各种传输方式：`tcp`（含 `headerType=http`）、`ws`、`httpupgrade`、`grpc`（含 multi 模式）、`h2`、`xhttp`（`path` / `host` / `mode` / `extra`，`extra` 里的 xPaddingBytes、xmux、downloadSettings 等都会转成 mihomo 的写法）、`kcp`。导出成分享链接时原样写回，导入再导出结果一致。
+
+三个内核对 VLESS 的支持不同，Knight 会自动选能跑的那个：
+
+| | mihomo | sing-box | Xray |
+| --- | --- | --- | --- |
+| REALITY / Vision | ✓（不兼容 Xray v26.7.11+ 服务端） | ✓ | ✓（含 spiderX、ML-DSA-65） |
+| XHTTP | ✓ | ✗ → 交给 mihomo / Xray | ✓ |
+| VLESS 加密 | ✓ | ✗ → 交给 mihomo / Xray | ✓ |
+| 跳过证书验证 | ✓ | ✓ | ✗（Xray 已移除） |
+
+Surge 不支持 VLESS，转成 Surge 节点列表时 VLESS 节点会被列为跳过；Quantumult X、Loon 的列表包含 VLESS（含 REALITY）。
 
 保存为订阅后，它和普通订阅一样定时更新，每次都会重新拉取所有来源，再按当时的选项转换。多个来源合并时，重名的节点后面会加上来源名。
 
@@ -59,7 +79,7 @@
 | 连接 | 活动 / 已关闭连接，实时速度，搜索，断开，详情 |
 | 规则 | 当前生效的全部规则（含防泄露规则），规则集合更新 |
 | 日志 | 内核实时日志（级别过滤、搜索、暂停），以及防泄露脚本、自定义脚本、转换过程的输出 |
-| 设置 | 内核选择与下载、搭配使用；端口、局域网、IPv6、日志级别、测速；系统代理；虚拟网卡授权与参数；防泄露全部参数；自定义规则 / 脚本；开机启动、外观、GitHub 加速等 |
+| 设置 | 内核选择与下载（六个内核）、搭配使用、交给 Xray 的节点；端口、局域网、IPv6、日志级别、测速；系统代理；虚拟网卡授权与参数；防泄露全部参数；自定义规则 / 脚本；开机启动、外观、GitHub 加速等 |
 
 托盘菜单可以切换模式、系统代理、虚拟网卡、订阅和内核。
 
@@ -126,7 +146,9 @@ app/
 │  ├─ index.js        窗口、托盘、IPC、内核切换、搭配内核、规则集下载、订阅定时更新
 │  ├─ enhance.js      生成运行配置（防泄露脚本、merge、自定义脚本、搭配拆分、转 sing-box）
 │  ├─ singbox.js      Clash 配置 → sing-box 配置（节点、分组、规则、DNS）
-│  ├─ sidecar.js      搭配使用：拆分节点、生成搭配内核的配置
+│  ├─ sidecar.js      搭配使用：按节点挑内核、生成搭配内核的配置
+│  ├─ xray.js         Clash 节点 → Xray 出站（只作搭配）
+│  ├─ formats.js      Surge / Quantumult X / Loon 节点列表
 │  ├─ nodes.js        订阅转换：节点处理、地区识别、分组模板
 │  ├─ convert.js      订阅解析（YAML / 分享链接 / sing-box / SIP008）
 │  ├─ links.js        节点 → 分享链接

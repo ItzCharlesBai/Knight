@@ -1,13 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- 牛津蓝底；金色细线是尺规作图的外接圆与正方形；骑士由直线和切面构成 -->
-  <rect x="24" y="24" width="464" height="464" rx="96" fill="#13284a"/>
-  <g fill="none" stroke="#c9a961" stroke-opacity=".32" stroke-width="2.5">
-    <circle cx="256" cy="256" r="198"/>
-    <path d="M256 58 L454 256 L256 454 L58 256 Z"/>
+  <!-- 包豪斯 × 日式电影海报：米色纸面、朱红太阳、黄色四分之一圆、蓝色底座；骑士用曲线勾出，细圆环是一点尺规作图的学术感 -->
+  <defs>
+    <clipPath id="tile"><rect x="24" y="24" width="464" height="464" rx="112"/></clipPath>
+  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="#F3ECDF"/>
+  <g clip-path="url(#tile)">
+    <circle cx="24" cy="488" r="190" fill="#F2B42C"/>
+    <circle cx="338" cy="196" r="118" fill="#E3492E"/>
+    <circle cx="256" cy="256" r="206" fill="none" stroke="#13213C" stroke-opacity=".18" stroke-width="3"/>
   </g>
-  <g fill="none" stroke="#ead9a8" stroke-linejoin="miter" stroke-miterlimit="10" stroke-linecap="square">
-    <polygon stroke-width="15" points="190,372 218,304 176,296 134,268 138,236 202,168 216,118 250,152 306,158 356,212 370,300 356,372"/>
-    <path stroke-width="6" d="M202,168 L242,228 L176,296 M242,228 L250,152 M242,228 L310,250 L356,212 M310,250 L370,300 M310,250 L218,304 M306,158 L310,250 M186,212 L197,201 L208,212 L197,223 Z"/>
-    <path stroke-width="15" d="M158,398 H368 M176,372 H352"/>
-  </g>
+  <path d="M196 388 C206 336 222 306 240 288 C214 292 186 300 166 296 C146 292 132 276 136 256 C140 236 162 218 190 206 C210 176 222 150 230 120 C238 132 246 144 254 150 C304 150 352 190 362 252 C370 306 362 352 352 388 Z" fill="#13213C"/>
+  <path d="M290 176 C328 198 346 236 344 290" fill="none" stroke="#F3ECDF" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="198" cy="222" r="10" fill="#F3ECDF"/>
+  <rect x="150" y="386" width="220" height="34" rx="17" fill="#1E4FA3"/>
 </svg>

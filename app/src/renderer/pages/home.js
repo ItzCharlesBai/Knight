@@ -33,7 +33,7 @@ export default function home(root, ctx) {
     patch(
       $("h-status"),
       html`<span class="pill ${st === "running" ? "ok" : st === "error" ? "bad" : ""}"><i></i>${s.core.label} ${s.core.version || ""} · ${label}</span>
-        ${s.sidecar ? html`<span class="pill ${s.sidecar.status === "running" ? "ok" : ""}"><i></i>搭配 ${s.sidecar.label}</span>` : ""}`
+        ${s.sidecars.map((x) => html`<span class="pill ${x.status === "running" ? "ok" : x.status === "error" ? "bad" : ""}"><i></i>搭配 ${x.label}</span>`)}`
     );
   }
 
@@ -72,18 +72,18 @@ export default function home(root, ctx) {
     const el = $("h-node");
     const profile = s.profiles.find((p) => p.id === s.settings.currentProfile);
     if (!profile) {
-      return patch(el, html`<div class="card-title">当前节点</div><div class="empty small">还没有订阅<button class="btn primary sm" data-action="go" data-page="profiles">${icon("plus", 16)}添加订阅</button></div>`);
+      return patch(el, html`<div class="card-title" data-en="Current node">当前节点</div><div class="empty small">还没有订阅<button class="btn primary sm" data-action="go" data-page="profiles">${icon("plus", 16)}添加订阅</button></div>`);
     }
-    if (s.settings.mode === "direct") return patch(el, html`<div class="card-title">当前节点</div><div class="big-name">直连</div><div class="muted small">直连模式下所有流量都不走代理</div>`);
-    if (!proxyData) return patch(el, html`<div class="card-title">当前节点</div><div class="muted small">${ctx.coreRunning() ? "加载中…" : "内核未运行"}</div>`);
+    if (s.settings.mode === "direct") return patch(el, html`<div class="card-title" data-en="Current node">当前节点</div><div class="big-name">直连</div><div class="muted small">直连模式下所有流量都不走代理</div>`);
+    if (!proxyData) return patch(el, html`<div class="card-title" data-en="Current node">当前节点</div><div class="muted small">${ctx.coreRunning() ? "加载中…" : "内核未运行"}</div>`);
     const group = mainGroup(proxyData, s.settings.mode);
-    if (!group) return patch(el, html`<div class="card-title">当前节点</div><div class="muted small">订阅里没有代理分组</div>`);
+    if (!group) return patch(el, html`<div class="card-title" data-en="Current node">当前节点</div><div class="muted small">订阅里没有代理分组</div>`);
     const chain = chainOf(proxyData.all, group.name);
     const leaf = chain[chain.length - 1];
     const d = delayOf(proxyData.all, group.name, group.testUrl);
     patch(
       el,
-      html`<div class="card-title">当前节点<button class="link" data-action="go" data-page="proxies">切换${icon("chevron", 14)}</button></div>
+      html`<div class="card-title" data-en="Current node">当前节点<button class="link" data-action="go" data-page="proxies">切换${icon("chevron", 14)}</button></div>
         <div class="big-name" title="${leaf}">${leaf}</div>
         <div class="chain">${chain.slice(0, -1).map((n) => html`<span>${n}</span>${icon("chevron", 12)}`)}<span>${leaf}</span></div>
         <div class="node-meta">
@@ -103,7 +103,7 @@ export default function home(root, ctx) {
       hist.map((v, i) => `${((i + 60 - hist.length) / 59) * w},${hgt - (v[idx] / max) * (hgt - 4)}`).join(" ");
     patch(
       $("h-traffic"),
-      html`<div class="card-title">实时流量</div>
+      html`<div class="card-title" data-en="Traffic">实时流量</div>
         <div class="speeds">
           <div><span class="dot up"></span>上传<b>${speed(t.up)}</b></div>
           <div><span class="dot down"></span>下载<b>${speed(t.down)}</b></div>
@@ -131,7 +131,7 @@ export default function home(root, ctx) {
     const webrtcText = { follow: "跟随分流", strict: "严格", reject: "全部拦截", off: "不处理" }[lg.webrtc] || lg.webrtc;
     patch(
       $("h-leak"),
-      html`<div class="card-title">防泄露<button class="link" data-action="go" data-page="settings" data-anchor="leak">设置${icon("chevron", 14)}</button></div>
+      html`<div class="card-title" data-en="Privacy">防泄露<button class="link" data-action="go" data-page="settings" data-anchor="leak">设置${icon("chevron", 14)}</button></div>
         <ul class="checks">
           ${item(lg.enabled, lg.enabled ? "DNS 防泄露已启用：境外域名经代理解析" : "防泄露脚本已关闭", lg.enabled ? "" : "DNS 可能经运营商解析境外域名")}
           ${item(s.settings.tun.enable, s.settings.tun.enable ? `WebRTC 已受保护（${webrtcText}）` : "未开启虚拟网卡", s.settings.tun.enable ? "" : "系统代理模式下 WebRTC 不经过代理，会暴露真实 IP")}
@@ -150,13 +150,13 @@ export default function home(root, ctx) {
   function renderSub() {
     const s = ctx.state;
     const p = s.profiles.find((x) => x.id === s.settings.currentProfile);
-    if (!p) return patch($("h-sub"), html`<div class="card-title">订阅</div><div class="muted small">还没有订阅</div>`);
+    if (!p) return patch($("h-sub"), html`<div class="card-title" data-en="Subscription">订阅</div><div class="muted small">还没有订阅</div>`);
     const u = p.userinfo || {};
     const used = (u.upload || 0) + (u.download || 0);
     const pct = u.total ? Math.min(100, (used / u.total) * 100) : 0;
     patch(
       $("h-sub"),
-      html`<div class="card-title">订阅<button class="link" data-action="go" data-page="profiles">管理${icon("chevron", 14)}</button></div>
+      html`<div class="card-title" data-en="Subscription">订阅<button class="link" data-action="go" data-page="profiles">管理${icon("chevron", 14)}</button></div>
         <div class="big-name small-name">${p.name}</div>
         ${u.total
           ? html`<div class="usage"><div class="bar"><i style="width:${pct.toFixed(1)}%" class="${pct > 90 ? "bad" : ""}"></i></div>

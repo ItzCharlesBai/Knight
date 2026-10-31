@@ -9,7 +9,8 @@ export const REGIONS = [
   { code: "SG", name: "新加坡", flag: "🇸🇬", re: "新加坡|狮城|獅城|Singapore|(?:^|[^A-Za-z])SG(?:[^A-Za-z]|$)|🇸🇬" },
   { code: "US", name: "美国", flag: "🇺🇸", re: "美国|美國|洛杉矶|洛杉磯|硅谷|西雅图|纽约|芝加哥|圣何塞|达拉斯|凤凰城|United ?States|America|(?:^|[^A-Za-z])USA?(?:[^A-Za-z]|$)|🇺🇸" },
   { code: "KR", name: "韩国", flag: "🇰🇷", re: "韩国|韓國|首尔|首爾|春川|Korea|Seoul|(?:^|[^A-Za-z])KR(?:[^A-Za-z]|$)|🇰🇷" },
-  { code: "GB", name: "英国", flag: "🇬🇧", re: "英国|英國|伦敦|倫敦|Britain|London|(?:^|[^A-Za-z])(?:UK|GB)(?:[^A-Za-z]|$)|🇬🇧" },
+  // 不认 GB：和流量单位（88.2 GB）撞车
+  { code: "GB", name: "英国", flag: "🇬🇧", re: "英国|英國|伦敦|倫敦|Britain|London|(?:^|[^A-Za-z])UK(?:[^A-Za-z]|$)|🇬🇧" },
   { code: "DE", name: "德国", flag: "🇩🇪", re: "德国|德國|法兰克福|Germany|Frankfurt|(?:^|[^A-Za-z])DE(?:[^A-Za-z]|$)|🇩🇪" },
 ];
 const REGION_RES = REGIONS.map((r) => Object.assign({}, r, { js: new RegExp(r.re, "iu") }));
@@ -18,6 +19,9 @@ export function regionOf(name) {
   return REGION_RES.find((r) => r.js.test(String(name))) || null;
 }
 
+// 信息节点（与 script.js 的 INFO_NODE_PATTERN 一致）
+const INFO = /剩余|到期|过期|有效期|重置|官网|网址|客服|失联|发布页|[Ee]xpire|[Tt]raffic|[Rr]emaining|[Rr]eset/;
+
 // 已经以国旗开头的名字不再加
 const FLAG_START = /^\s*(?:[\u{1F1E6}-\u{1F1FF}]{2}|🏳|🏴)/u;
 
@@ -25,6 +29,8 @@ export const DEFAULT_CONVERT = {
   template: "keep", // keep 保持订阅自带的分组和规则 | simple 简洁 | region 按地区 | full 全面分流
   include: "",
   exclude: "",
+  types: "", // 只保留这些协议（逗号分隔，如 "vless,trojan"），留空不筛
+  dropInfo: false, // 去掉「剩余流量 / 到期时间 / 官网」这类信息节点（超过一半节点都像信息节点时不删）
   rename: "", // 每行一条「原文 => 替换」，原文按正则处理
   emoji: false,
   dedupe: false,
@@ -73,15 +79,23 @@ export function processNodes(proxies, options = {}) {
   const o = Object.assign({}, DEFAULT_CONVERT, options);
   const include = safeRegex(o.include);
   const exclude = safeRegex(o.exclude);
+  const types = new Set(String(o.types || "").split(",").map((t) => t.trim().toLowerCase()).filter(Boolean));
+  const list = Array.isArray(proxies) ? proxies : [];
+  const infoCount = o.dropInfo ? list.filter((p) => p && INFO.test(p.name)).length : 0;
+  const dropInfo = infoCount > 0 && infoCount * 2 <= list.length;
   const rules = renameRules(o.rename);
   const renamed = new Map();
   const removed = new Set();
   const seen = new Set();
   const names = new Set();
   let out = [];
-  for (const p of Array.isArray(proxies) ? proxies : []) {
+  for (const p of list) {
     if (!p || typeof p !== "object" || !p.name) continue;
-    if ((include && !include.test(p.name)) || (exclude && exclude.test(p.name))) {
+    if (dropInfo && INFO.test(p.name)) {
+      removed.add(p.name);
+      continue;
+    }
+    if ((include && !include.test(p.name)) || (exclude && exclude.test(p.name)) || (types.size && !types.has(String(p.type).toLowerCase()))) {
       removed.add(p.name);
       continue;
     }

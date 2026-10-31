@@ -1,20 +1,29 @@
-// 搭配使用：当前内核不支持的节点交给另一个内核运行。
-// 另一个内核在 127.0.0.1 上为每个这样的节点开一个 SOCKS 入口，主内核里把节点换成指向这个入口的 socks5 节点，
-// 分组、规则、测速都不变。例：用 mihomo 时 NaiveProxy 节点交给 sing-box；用 sing-box 时 SSR / Snell / Mieru 节点交给 mihomo
+// 搭配使用：主内核跑不了（或者指定交给别的内核）的节点，由另一个内核运行。
+// 搭配内核在 127.0.0.1 上为每个这样的节点开一个 SOCKS 入口，主内核里把节点换成指向这个入口的 socks5 节点，
+// 分组、规则、测速都不变。例：mihomo 下的 NaiveProxy 交给 sing-box；sing-box 下的 SSR / XHTTP 交给 mihomo 或 Xray；
+// 还可以指定 VLESS（或只是 REALITY）节点一律交给 Xray
 import yaml from "js-yaml";
 import { singboxSupports, toOutbound } from "./singbox.js";
+import { xrayConfig, xraySupports } from "./xray.js";
 
 const isMap = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
 // mihomo 不支持的类型（来自分享链接的 naive 等）
 const CLASH_UNSUPPORTED = new Set(["naive"]);
-export const clashSupports = (node) => isMap(node) && !CLASH_UNSUPPORTED.has(node.type);
-export const supports = (kind, node) => (kind === "singbox" ? singboxSupports(node) : clashSupports(node));
-const other = (kind) => (kind === "singbox" ? "clash" : "singbox");
+export const clashSupports = (node) => isMap(node) && !CLASH_UNSUPPORTED.has(node.type) && !(node.type === "vless" && node.network === "mkcp");
+export function supports(kind, node) {
+  if (kind === "singbox") return singboxSupports(node);
+  if (kind === "xray") return xraySupports(node);
+  return clashSupports(node);
+}
 
-// 返回 { config, entries: [{ node, port }], dropped: [名字] }
-// sidecarKind 为空表示没有可搭配的内核：不支持的节点直接去掉（分组里的引用一并去掉）
-export function splitNodes(config, mainKind, { sidecarKind = "", basePort = 7920, reserved = [] } = {}) {
+// 「交给 Xray」的范围：off | reality | vless
+export const wantsXray = (mode, node) =>
+  isMap(node) && node.type === "vless" && (mode === "vless" || (mode === "reality" && isMap(node["reality-opts"])));
+
+// sidecars：可搭配的内核 [{ id, kind }]，按优先顺序；xrayFor：哪些 VLESS 节点优先交给 Xray
+// 返回 { config, entries: [{ node, port, sidecar }], dropped: [名字] }
+export function splitNodes(config, mainKind, { sidecars = [], xrayFor = "off", basePort = 7920, reserved = [] } = {}) {
   const proxies = Array.isArray(config.proxies) ? config.proxies : [];
   const entries = [];
   const dropped = [];
@@ -25,15 +34,18 @@ export function splitNodes(config, mainKind, { sidecarKind = "", basePort = 7920
     used.add(port);
     return port++;
   };
+  const xray = sidecars.find((s) => s.kind === "xray");
   const out = [];
   for (const node of proxies) {
-    if (!isMap(node) || supports(mainKind, node)) {
+    let target = null;
+    if (xray && wantsXray(xrayFor, node) && supports("xray", node)) target = xray;
+    else if (!isMap(node) || supports(mainKind, node)) {
       out.push(node);
       continue;
-    }
-    if (sidecarKind === other(mainKind) && supports(sidecarKind, node)) {
+    } else target = sidecars.find((s) => s.kind !== mainKind && supports(s.kind, node)) || null;
+    if (target) {
       const p = nextPort();
-      entries.push({ node, port: p });
+      entries.push({ node, port: p, sidecar: target.id });
       out.push({ name: node.name, type: "socks5", server: "127.0.0.1", port: p, udp: true });
     } else {
       dropped.push(node.name);
@@ -52,6 +64,7 @@ export function splitNodes(config, mainKind, { sidecarKind = "", basePort = 7920
 
 // 搭配内核的配置：只负责把每个本地入口转到对应节点
 export function sidecarConfig(kind, entries) {
+  if (kind === "xray") return xrayConfig(entries);
   if (kind === "clash") {
     return yaml.dump(
       {

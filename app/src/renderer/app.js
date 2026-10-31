@@ -10,16 +10,16 @@ import rules from "./pages/rules.js";
 import logs from "./pages/logs.js";
 import settings from "./pages/settings.js";
 
-// [名字, 中文, 图标, 页面]
+// [名字, 中文, 图标, 页面, 英文（页头小字）]
 const PAGES = [
-  ["home", "概览", "home", home],
-  ["proxies", "代理", "globe", proxies],
-  ["profiles", "订阅", "layers", profiles],
-  ["convert", "转换", "shuffle", convert],
-  ["connections", "连接", "link", connections],
-  ["rules", "规则", "list", rules],
-  ["logs", "日志", "terminal", logs],
-  ["settings", "设置", "settings", settings],
+  ["home", "概览", "home", home, "Overview"],
+  ["proxies", "代理", "globe", proxies, "Proxies"],
+  ["profiles", "订阅", "layers", profiles, "Subscriptions"],
+  ["convert", "转换", "shuffle", convert, "Conversion"],
+  ["connections", "连接", "link", connections, "Connections"],
+  ["rules", "规则", "list", rules, "Rules"],
+  ["logs", "日志", "terminal", logs, "Journal"],
+  ["settings", "设置", "settings", settings, "Preferences"],
 ];
 
 const listeners = { state: new Set(), traffic: new Set(), log: new Set(), visible: new Set() };
@@ -75,6 +75,7 @@ function go(name, anchor) {
   const root = old.cloneNode(false);
   old.replaceWith(root);
   current = entry[3](root, ctx) || {};
+  addKicker(root, PAGES.indexOf(entry) + 1, entry[4]);
   renderNav();
   if (anchor) setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: "start" }), 50);
   try {
@@ -84,13 +85,26 @@ function go(name, anchor) {
   }
 }
 
+// 页头标题上方的小字：No.01 — OVERVIEW（海报式编号）
+function addKicker(root, index, english) {
+  const h1 = root.querySelector(".page-head h1");
+  if (!h1) return;
+  const block = document.createElement("div");
+  block.className = "title-block";
+  const kicker = document.createElement("div");
+  kicker.className = "kicker";
+  kicker.textContent = `No.${String(index).padStart(2, "0")} — ${english}`;
+  h1.replaceWith(block);
+  block.append(kicker, h1);
+}
+
 function renderTraffic() {
   const el = document.getElementById("side-traffic");
   const s = ctx.state;
   const running = ctx.coreRunning();
   patch(
     el,
-    html`<div class="core-name">${s ? s.core.label + (s.sidecar ? " + " + s.sidecar.label : "") : ""}</div>
+    html`<div class="core-name">${s ? [s.core.label].concat(s.sidecars.map((x) => x.label)).join(" + ") : ""}</div>
       ${running
         ? html`<div class="row">${icon("up", 14)}<span>${speed(ctx.traffic.up)}</span></div><div class="row">${icon("down", 14)}<span>${speed(ctx.traffic.down)}</span></div>`
         : html`<div class="row">内核未运行</div>`}`

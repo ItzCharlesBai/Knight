@@ -72,13 +72,16 @@ export class Core extends EventEmitter {
   }
 
   runArgs(file = this.configFile) {
-    return this.kind === "singbox" ? ["run", "-c", file, "-D", this.workDir, "--disable-color"] : ["-d", this.workDir, "-f", file];
+    if (this.kind === "singbox") return ["run", "-c", file, "-D", this.workDir, "--disable-color"];
+    if (this.kind === "xray") return ["run", "-c", file];
+    return ["-d", this.workDir, "-f", file];
   }
 
   // 校验配置：返回错误信息，没问题返回空字符串
   async test(file) {
-    const args = this.kind === "singbox" ? ["check", "-c", file, "-D", this.workDir, "--disable-color"] : ["-t", "-d", this.workDir, "-f", file];
-    const isError = (l) => (this.kind === "singbox" ? /\b(FATAL|ERROR)\b/.test(l) : /level=(error|fatal)/.test(l));
+    const args =
+      this.kind === "singbox" ? ["check", "-c", file, "-D", this.workDir, "--disable-color"] : this.kind === "xray" ? ["run", "-test", "-c", file] : ["-t", "-d", this.workDir, "-f", file];
+    const isError = (l) => (this.kind === "singbox" ? /\b(FATAL|ERROR)\b/.test(l) : this.kind === "xray" ? /fail|error|panic/i.test(l) : /level=(error|fatal)/.test(l));
     try {
       const { stdout, stderr } = await run(this.bin, args, { timeout: 60000, windowsHide: true });
       return (stdout + "\n" + stderr).split("\n").filter(isError).map(cleanLog).join("\n");
@@ -103,7 +106,7 @@ export class Core extends EventEmitter {
         if (!line.trim()) continue;
         this.output.push(line);
         if (this.output.length > 500) this.output.shift();
-        if (this.kind === "singbox" ? /\bFATAL\b/.test(line) : /level=fatal/.test(line)) this.error = cleanLog(line);
+        if (this.kind === "singbox" ? /\bFATAL\b/.test(line) : this.kind === "xray" ? /Failed to start|panic/.test(line) : /level=fatal/.test(line)) this.error = cleanLog(line);
       }
     };
     proc.stdout.on("data", onData);
