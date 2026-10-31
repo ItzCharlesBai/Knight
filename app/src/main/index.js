@@ -639,7 +639,7 @@ function main() {
       title: "Knight",
       icon: join(resourcesDir, "icons", "icon.png"),
       autoHideMenuBar: true,
-      backgroundColor: nativeTheme.shouldUseDarkColors ? "#11151c" : "#f4efe4",
+      backgroundColor: settings().theme === "light" || (settings().theme === "system" && !nativeTheme.shouldUseDarkColors) ? "#e9e7e1" : "#05070c",
       webPreferences: { preload: join(here, "..", "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
     win.removeMenu();

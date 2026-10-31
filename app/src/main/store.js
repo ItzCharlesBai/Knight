@@ -57,7 +57,7 @@ export const DEFAULTS = {
   autoLaunch: false,
   silentStart: false,
   closeToTray: true,
-  theme: "system",
+  theme: "dark", // 界面按夜空的电影海报设计，默认深色；也可以跟随系统或用浅色
   githubMirror: "",
   updateViaProxy: false,
 };

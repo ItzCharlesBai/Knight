@@ -85,7 +85,7 @@ function go(name, anchor) {
   }
 }
 
-// 页头标题上方的小字：No.01 — OVERVIEW（海报式编号）
+// 页头标题上方的小字：MISSION 01 — OVERVIEW（海报式编号）
 function addKicker(root, index, english) {
   const h1 = root.querySelector(".page-head h1");
   if (!h1) return;
@@ -93,7 +93,7 @@ function addKicker(root, index, english) {
   block.className = "title-block";
   const kicker = document.createElement("div");
   kicker.className = "kicker";
-  kicker.textContent = `No.${String(index).padStart(2, "0")} — ${english}`;
+  kicker.textContent = `Mission ${String(index).padStart(2, "0")} — ${english}`;
   h1.replaceWith(block);
   block.append(kicker, h1);
 }

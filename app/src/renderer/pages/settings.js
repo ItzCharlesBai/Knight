@@ -211,9 +211,9 @@ export default function settings(root, ctx) {
         ${sw("silentStart", "静默启动", "启动时不打开窗口，只在托盘显示")}
         ${sw("closeToTray", "关闭窗口时留在托盘", "关闭后内核继续运行；从托盘菜单退出")}
         ${select("theme", "外观", "", [
+          ["dark", "夜空（默认）"],
+          ["light", "月面印刷版"],
           ["system", "跟随系统"],
-          ["light", "浅色"],
-          ["dark", "深色"],
         ])}
         ${sw("updateViaProxy", "订阅经代理更新", "关闭时先直连，失败后自动改走代理")}
         ${text("githubMirror", "GitHub 加速", "下载内核时使用的前缀，例如 https://ghfast.top/，留空直连", "")}

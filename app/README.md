@@ -2,8 +2,8 @@
 
 代理客户端（Windows / macOS / Linux），可选 **mihomo**、**sing-box** 内核，**Xray** 可以搭配运行 VLESS 节点；内置本仓库的防泄露方案（[`clash-verge-rev/script.js`](../clash-verge-rev/script.js)）和**订阅转换**。
 
-- 界面：包豪斯 × 日式电影海报 × 英伦。米色海报纸面、朱红太阳、蓝黄原色点缀，圆润的胶囊按钮和卡片；标题用 Baskerville 和 Noto Serif SC，页头有「No.01 — OVERVIEW」式的编号，侧栏有竖排小字。字体随应用打包（SIL OFL），不同系统效果一样。有浅色和深色（夜场海报）两种外观
-- 图标：包豪斯构图——米色底、朱红太阳、黄色四分之一圆、蓝色底座，骑士用曲线勾出
+- 界面：电影海报的质感，参照美国绕月任务（Artemis II）的宣传海报——深空与星点、右上角一轮月球和自由返回轨道、侧栏底部地球边缘的大气光与日出、胶片颗粒和暗角；面板是半透明的深色玻璃。英伦的部分留在字体上：标题用 Baskerville 和 Noto Serif SC，宽字距，页头是「MISSION 01 — OVERVIEW」式的片头小字，侧栏底部有一段演职员表。默认夜空版，另有浅色的「月面印刷版」。字体随应用打包（SIL OFL），不同系统效果一样
+- 图标：骑士剪影立在地球的地平线上，背后是一轮满月，一条橙色的绕月轨道穿过画面
 - 内核：自带 mihomo，其他内核在 设置 → 内核 里一键下载，随时切换
 - 订阅链接只在本机下载和转换，不会发给任何在线转换服务
 
@@ -158,8 +158,8 @@ app/
 │  ├─ core-download.js 内核登记表与下载（gz / zip / tar.gz）
 │  ├─ sysproxy.js     系统代理
 │  └─ store.js        设置
-├─ src/renderer/      界面（无框架、无构建步骤）；fonts/ 是打包的字体（SIL OFL 1.1）
+├─ src/renderer/      界面（无框架、无构建步骤）；fonts/ 是打包的字体（SIL OFL 1.1），art/ 是月球、星空、轨道素材
 ├─ src/preload.cjs
-├─ scripts/           下载内核、生成图标
+├─ scripts/           下载内核、生成图标（icons.mjs）和背景素材（art.mjs）
 └─ test/              单元测试
 ```
