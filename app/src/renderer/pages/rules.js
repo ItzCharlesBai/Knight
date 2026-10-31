@@ -20,7 +20,7 @@ export default function rules(root, ctx) {
 
   function render() {
     const rows = list
-      .map((r, i) => Object.assign({ index: i + 1 }, r))
+      .map((r, i) => Object.assign({}, r, { index: i + 1 }))
       .filter((r) => !query || [r.type, r.payload, r.proxy].join(" ").toLowerCase().includes(query));
     patch($("r-count"), html`共 ${list.length} 条规则${query ? `，匹配 ${rows.length} 条` : ""}，按顺序匹配，第一条命中的生效`);
     patch(

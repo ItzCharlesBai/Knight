@@ -80,7 +80,14 @@ export default function connections(root, ctx) {
     );
   }
 
-  const stop = ctx.api.stream("/connections?interval=1000", onData);
+  let stop = ctx.api.stream("/connections?interval=1000", onData);
+  const onVisibility = () => {
+    if (document.hidden) {
+      stop();
+      stop = () => {};
+    } else stop = ctx.api.stream("/connections?interval=1000", onData);
+  };
+  document.addEventListener("visibilitychange", onVisibility);
 
   delegate(root, "click", {
     tab: (el) => {
@@ -133,5 +140,10 @@ export default function connections(root, ctx) {
   });
 
   render();
-  return { unmount: stop };
+  return {
+    unmount() {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    },
+  };
 }

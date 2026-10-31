@@ -19,9 +19,13 @@ jobs:
           node-version: 22
       - name: 扩展脚本测试
         run: npm ci && npm test
-      - name: 客户端测试（含 mihomo -t 校验）
+      - name: 客户端测试（mihomo -t 与 sing-box check 校验生成的配置）
         working-directory: app
-        run: npm ci && node scripts/fetch-core.mjs && npm test
+        run: |
+          npm ci
+          node scripts/fetch-core.mjs
+          node scripts/fetch-core.mjs --core sing-box --out "$RUNNER_TEMP/sing-box"
+          SINGBOX_BIN="$RUNNER_TEMP/sing-box/sing-box" npm test
 
   build:
     needs: test

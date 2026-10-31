@@ -1,7 +1,11 @@
-// 生成交给 mihomo 的运行配置，顺序与 Clash Verge Rev 一致，仓库里的 script.js / merge.yaml 可以原样使用：
-//   订阅原文 → 应用设置 → merge.yaml（可选）→ 防泄露脚本 script.js → 自定义脚本（可选）→ 应用设置回写
+// 生成交给内核的运行配置，顺序与 Clash Verge Rev 一致，仓库里的 script.js / merge.yaml 可以原样使用：
+//   订阅（已按订阅的转换选项处理）→ 当前内核不支持的节点交给另一个内核（搭配使用）→ 应用设置 → merge.yaml（可选）
+//   → 防泄露脚本 script.js → 自定义脚本（可选）→ 自定义规则 → 应用设置回写 → 内核是 sing-box 时整体转换
 import vm from "node:vm";
 import yaml from "js-yaml";
+import { CORES } from "./core-download.js";
+import { sidecarConfig, splitNodes } from "./sidecar.js";
+import { toSingBox } from "./singbox.js";
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const isMap = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -116,9 +120,39 @@ function ensureDNS(config) {
   });
 }
 
-export function generate({ profile, settings, scriptSource = "", mergeSource = "", profileName = "" }) {
+// mihomo Smart 内核：把自动测速分组换成 Smart 分组（按实际连接质量学习选择节点）
+function useSmartGroups(config) {
+  config["proxy-groups"] = (config["proxy-groups"] || []).map((g) => {
+    if (!isMap(g) || g.type !== "url-test") return g;
+    const out = Object.assign({}, g, { type: "smart" });
+    delete out.tolerance;
+    return out;
+  });
+}
+
+// core：{ id, kind }；sidecar：{ kind, bin } 可搭配的另一个内核（没有就是 null）
+// singbox：{ providers, ruleSetPath, version } 转 sing-box 时用
+export function generate({ profile, settings, scriptSource = "", mergeSource = "", profileName = "", core = { id: "mihomo", kind: "clash" }, sidecar = null, singbox = {} }) {
   const logs = [];
-  let config = applySettings(clone(profile), settings);
+  const info = (message, level = "info") => logs.push({ source: "Knight", level, message });
+
+  // 当前内核跑不了的节点：有另一个内核就交给它，没有就去掉
+  const split = splitNodes(profile, core.kind, {
+    sidecarKind: settings.combine && sidecar ? sidecar.kind : "",
+    basePort: settings.sidecarPort,
+    reserved: [settings.mixedPort, settings.controllerPort],
+  });
+  const otherLabel = core.kind === "singbox" ? "mihomo" : "sing-box";
+  if (split.entries.length) info(`${split.entries.length} 个节点由 ${otherLabel} 搭配运行：${split.entries.map((e) => e.node.name).slice(0, 5).join("、")}`);
+  if (split.dropped.length) {
+    info(
+      `${split.dropped.length} 个节点当前内核不支持，已跳过：${split.dropped.slice(0, 5).join("、")}` +
+        (settings.combine ? `。在 设置 → 内核 里下载 ${otherLabel} 后会自动搭配使用` : "。打开「搭配使用」后可交给另一个内核运行"),
+      "warn"
+    );
+  }
+
+  let config = applySettings(clone(split.config), settings);
 
   if (settings.useMerge && mergeSource) config = useMerge(yaml.load(mergeSource), config);
 
@@ -137,8 +171,24 @@ export function generate({ profile, settings, scriptSource = "", mergeSource = "
   const extra = (settings.customRules || []).map((r) => String(r).trim()).filter(Boolean);
   if (extra.length) config.rules = extra.concat((Array.isArray(config.rules) ? config.rules : []).filter((r) => extra.indexOf(r) < 0));
 
+  if (core.id === "mihomo-smart" && settings.smartGroups) useSmartGroups(config);
+
   // 回写：脚本只能读这些字段，不能改（严格路由例外：脚本只在设置没管理时才动它，这里总是由设置决定）
   config = applySettings(config, settings);
   ensureDNS(config);
-  return { config, logs, text: yaml.dump(config, { lineWidth: -1, noRefs: true }) };
+
+  const side = split.entries.length ? { kind: sidecar.kind, entries: split.entries.length, text: sidecarConfig(sidecar.kind, split.entries) } : null;
+  if (core.kind !== "singbox") {
+    // 搭配的内核自己连节点，不能再被虚拟网卡绕回来
+    if (side) {
+      config.rules = [`PROCESS-PATH,${sidecar.bin},DIRECT`].concat(config.rules || []);
+      config["find-process-mode"] = "strict";
+    }
+    return { kind: "clash", config, logs, text: yaml.dump(config, { lineWidth: -1, noRefs: true }), sidecar: side, ruleSets: [] };
+  }
+  const sb = toSingBox(config, settings, Object.assign({}, singbox, { sidecarBin: side ? sidecar.bin : "" }));
+  sb.logs.forEach((l) => logs.push(Object.assign({ source: "sing-box 转换" }, l)));
+  return { kind: "singbox", config, logs, text: JSON.stringify(sb.config, null, 2), sidecar: side, ruleSets: sb.ruleSets };
 }
+
+export const coreKind = (id) => (CORES[id] || CORES.mihomo).kind;

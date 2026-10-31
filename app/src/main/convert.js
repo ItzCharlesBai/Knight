@@ -1,6 +1,8 @@
-// 订阅内容解析：Clash / mihomo YAML 原样使用；Base64 或逐行的分享链接（ss / ssr / vmess / vless / trojan /
-// hysteria2 / tuic / socks5 / http）转换成节点，再套一份最简的分组和规则
+// 订阅内容解析：Clash / mihomo YAML 原样使用；Base64 或逐行的分享链接（ss / ssr / vmess / vless / trojan / hysteria2 /
+// hysteria / tuic / anytls / naive / wireguard / socks5 / http）、sing-box 配置、SIP008 转换成节点，再套一份最简的分组和规则
 import yaml from "js-yaml";
+import { buildTemplate } from "./nodes.js";
+import { fromOutbound } from "./singbox.js";
 
 export function parseSubscription(text) {
   text = String(text || "").replace(/^﻿/, "").trim();
@@ -14,30 +16,61 @@ export function parseSubscription(text) {
   }
   if (doc && typeof doc === "object" && !Array.isArray(doc)) {
     if (Array.isArray(doc.proxies) || (doc["proxy-providers"] && typeof doc["proxy-providers"] === "object")) {
-      return { config: doc, converted: false };
+      return { config: doc, converted: false, format: "clash" };
+    }
+    // sing-box 配置：取其中的出站节点
+    if (Array.isArray(doc.outbounds)) {
+      const nodes = doc.outbounds.concat(doc.endpoints || []).map(fromOutbound).filter(Boolean);
+      if (!nodes.length) throw new Error("sing-box 配置里没有可识别的节点");
+      return { config: wrapProxies(uniqueNames(nodes)), converted: true, format: "singbox" };
+    }
+    // SIP008（Shadowsocks 的 JSON 订阅）
+    if (Array.isArray(doc.servers) && doc.servers.some((x) => x && x.method)) {
+      const nodes = doc.servers
+        .filter((x) => x && x.server && x.method)
+        .map((x) => Object.assign({ name: x.remarks || `${x.server}:${x.server_port}`, type: "ss", server: x.server, port: Number(x.server_port), cipher: x.method, password: x.password, udp: true }, sip003(x.plugin, x.plugin_opts)));
+      return { config: wrapProxies(uniqueNames(nodes)), converted: true, format: "sip008" };
     }
     throw new Error("订阅里没有节点（缺少 proxies / proxy-providers）");
   }
 
-  const lines = (looksLikeLinks(text) ? text : decodeBase64(text) || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const proxies = [];
-  const names = new Set();
-  for (const line of lines) {
-    let node;
-    try {
-      node = parseLink(line);
-    } catch {
-      node = null;
-    }
-    if (!node) continue;
-    let name = node.name || `${node.type} ${node.server}:${node.port}`;
-    for (let i = 2; names.has(name); i++) name = `${node.name} ${i}`;
-    node.name = name;
-    names.add(name);
-    proxies.push(node);
-  }
+  const proxies = parseLinks(looksLikeLinks(text) ? text : decodeBase64(text) || "");
   if (!proxies.length) throw new Error("无法识别的订阅格式：既不是 Clash 配置，也没有可用的分享链接");
-  return { config: wrapProxies(proxies), converted: true };
+  return { config: wrapProxies(proxies), converted: true, format: "links" };
+}
+
+// 逐行解析分享链接，认不出的行跳过
+export function parseLinks(text) {
+  const nodes = [];
+  for (const line of String(text).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+    try {
+      const node = parseLink(line);
+      if (node) nodes.push(node);
+    } catch {
+      /* 跳过坏链接 */
+    }
+  }
+  return uniqueNames(nodes);
+}
+
+// 没有名字的补上，重名的加序号
+function uniqueNames(nodes) {
+  const names = new Set();
+  return nodes.map((node) => {
+    const base = node.name || `${node.type} ${node.server}:${node.port}`;
+    let name = base;
+    for (let i = 2; names.has(name); i++) name = `${base} ${i}`;
+    names.add(name);
+    return Object.assign(node, { name });
+  });
+}
+
+function sip003(plugin, opts) {
+  if (!plugin) return {};
+  const kv = Object.fromEntries(String(opts || "").split(";").filter(Boolean).map((o) => [o.split("=")[0], o.split("=").slice(1).join("=") || true]));
+  if (/obfs/.test(plugin)) return { plugin: "obfs", "plugin-opts": { mode: kv.obfs || "http", host: kv["obfs-host"] || "" } };
+  if (/v2ray/.test(plugin)) return { plugin: "v2ray-plugin", "plugin-opts": { mode: kv.mode || "websocket", tls: kv.tls === true, host: kv.host || "", path: kv.path || "/" } };
+  return {};
 }
 
 const looksLikeLinks = (text) => /^[a-z][a-z0-9+.-]*:\/\//im.test(text);
@@ -50,15 +83,7 @@ export function decodeBase64(text) {
 
 // 只有节点链接时使用的最简配置：手动选择 + 自动选择，国内直连，其余走代理
 export function wrapProxies(proxies) {
-  const names = proxies.map((p) => p.name);
-  return {
-    proxies,
-    "proxy-groups": [
-      { name: "节点选择", type: "select", proxies: ["自动选择", ...names, "DIRECT"] },
-      { name: "自动选择", type: "url-test", proxies: names, url: "https://www.gstatic.com/generate_204", interval: 300, tolerance: 50, lazy: true },
-    ],
-    rules: ["GEOSITE,private,DIRECT", "GEOIP,private,DIRECT,no-resolve", "GEOSITE,cn,DIRECT", "GEOIP,CN,DIRECT", "MATCH,节点选择"],
-  };
+  return Object.assign({ proxies }, buildTemplate("simple", proxies.map((p) => p.name)));
 }
 
 function parseLink(line) {
@@ -79,6 +104,17 @@ function parseLink(line) {
       return parseHysteria2(line);
     case "tuic":
       return parseTuic(line);
+    case "hysteria":
+    case "hy":
+      return parseHysteria(line);
+    case "anytls":
+      return parseAnyTLS(line);
+    case "naive+https":
+    case "naive+quic":
+      return parseNaive(line, scheme);
+    case "wireguard":
+    case "wg":
+      return parseWireGuard(line);
     case "socks":
     case "socks5":
     case "http":
@@ -255,6 +291,62 @@ function parseTuic(line) {
   if (q.get("alpn")) node.alpn = q.get("alpn").split(",");
   if (bool(q.get("allow_insecure")) || bool(q.get("insecure"))) node["skip-cert-verify"] = true;
   return node.server && node.uuid ? node : null;
+}
+
+function parseHysteria(line) {
+  const url = new URL(line.replace(/^hy:/i, "hysteria:"));
+  const q = url.searchParams;
+  const node = { name: decodeName(url.hash), type: "hysteria", server: hostOf(url), port: portOf(url, 443), protocol: q.get("protocol") || "udp" };
+  if (q.get("auth")) node["auth-str"] = q.get("auth");
+  if (q.get("peer") || q.get("sni")) node.sni = q.get("peer") || q.get("sni");
+  if (bool(q.get("insecure"))) node["skip-cert-verify"] = true;
+  if (q.get("upmbps")) node.up = q.get("upmbps") + " Mbps";
+  if (q.get("downmbps")) node.down = q.get("downmbps") + " Mbps";
+  if (q.get("alpn")) node.alpn = q.get("alpn").split(",");
+  if (q.get("obfsParam") || q.get("obfs")) node.obfs = q.get("obfsParam") || q.get("obfs");
+  if (q.get("mport")) node.ports = q.get("mport");
+  return node.server ? node : null;
+}
+
+function parseAnyTLS(line) {
+  const url = new URL(line);
+  const q = url.searchParams;
+  const node = { name: decodeName(url.hash), type: "anytls", server: hostOf(url), port: portOf(url, 443), password: decodeURIComponent(url.username), udp: true };
+  if (q.get("sni")) node.sni = q.get("sni");
+  if (bool(q.get("insecure")) || bool(q.get("allowInsecure"))) node["skip-cert-verify"] = true;
+  if (q.get("fp")) node["client-fingerprint"] = q.get("fp");
+  return node.server && node.password ? node : null;
+}
+
+// NaiveProxy 只有 sing-box 支持；用 mihomo 时由 sing-box 搭配运行
+function parseNaive(line, scheme) {
+  const url = new URL(line.replace(/^naive\+/i, ""));
+  const node = { name: decodeName(url.hash), type: "naive", server: hostOf(url), port: portOf(url, 443), username: decodeURIComponent(url.username), password: decodeURIComponent(url.password) };
+  if (scheme === "naive+quic") node.quic = true;
+  return node.server ? node : null;
+}
+
+function parseWireGuard(line) {
+  const url = new URL(line.replace(/^wg:/i, "wireguard:"));
+  const q = url.searchParams;
+  const address = (q.get("address") || q.get("ip") || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const node = {
+    name: decodeName(url.hash),
+    type: "wireguard",
+    server: hostOf(url),
+    port: portOf(url, 51820),
+    "private-key": decodeURIComponent(url.username),
+    "public-key": q.get("publickey") || q.get("public-key") || "",
+    udp: true,
+  };
+  const v4 = address.find((a) => !a.includes(":"));
+  const v6 = address.find((a) => a.includes(":"));
+  if (v4) node.ip = v4.replace(/\/32$/, "");
+  if (v6) node.ipv6 = v6.replace(/\/128$/, "");
+  if (q.get("presharedkey")) node["pre-shared-key"] = q.get("presharedkey");
+  if (q.get("reserved")) node.reserved = q.get("reserved").split(",").map(Number);
+  if (q.get("mtu")) node.mtu = Number(q.get("mtu"));
+  return node.server && node["private-key"] && node["public-key"] ? node : null;
 }
 
 function parseSocksHttp(line, scheme) {

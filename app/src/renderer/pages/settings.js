@@ -43,10 +43,45 @@ export default function settings(root, ctx) {
     const lg = s.leakGuard;
     const win = st.platform === "win32";
     const groups = [["", "跟随订阅兜底规则（推荐）"], ...st.groups.map((g) => [g, g])];
+    const caps = st.core.caps || {};
 
     patch(
       body,
       html`
+      ${section(
+        "core",
+        "内核",
+        html`
+        ${st.cores.map((c) => {
+          const using = st.core.id === c.id;
+          const paired = st.sidecar && st.sidecar.id === c.id;
+          return html`<div class="core-row">
+            <input type="radio" name="core" data-key="core" value="${c.id}" ${raw(using ? "checked" : "")} ${raw(c.installed ? "" : "disabled")} title="${c.installed ? "使用这个内核" : "先下载"}" />
+            <div class="set-text"><span>${c.label}${using ? html`<span class="badge">使用中</span>` : ""}${paired ? html`<span class="badge">搭配</span>` : ""}<small>${c.installed ? c.version || "" : "未下载"}</small></span><small>${c.desc}</small></div>
+            <button class="btn sm" data-action="install-core" data-id="${c.id}" ${raw(c.downloading ? "disabled" : "")}>${icon(c.installed ? "refresh" : "down", 14)}${c.downloading ? "下载中…" : c.installed ? "更新" : "下载"}</button>
+          </div>`;
+        })}
+        ${sw("combine", "搭配使用", "当前内核不支持的节点交给另一个已下载的内核运行：mihomo 下的 NaiveProxy 交给 sing-box，sing-box 下的 SSR、Snell、Mieru 交给 mihomo")}
+        ${s.combine ? number("sidecarPort", "搭配端口", "另一个内核在本机开的 SOCKS 入口从这个端口起依次使用", 1024, 65000) : ""}
+        ${st.core.id === "mihomo-smart" ? sw("smartGroups", "Smart 分组", "把订阅里的自动选择（url-test）分组换成 Smart 分组") : ""}
+        ${row(
+          "运行状态",
+          st.core.installed ? `${st.core.label} ${st.core.version} · ${{ running: "运行中", starting: "启动中", stopped: "已停止", error: "出错" }[st.core.status]}${st.sidecar ? ` ；搭配 ${st.sidecar.label} · ${st.sidecar.status === "running" ? "运行中" : st.sidecar.status}` : ""}` : "还没有内核，请先下载",
+          html`<button class="btn sm" data-action="restart" ${raw(coreBusy ? "disabled" : "")}>${icon("refresh", 14)}${coreBusy === "restart" ? "重启中…" : "重启内核"}</button>`
+        )}
+        ${st.core.error ? html`<div class="notice bad inset">${st.core.error}</div>` : ""}
+        ${caps.geo ? row("GEO 数据", "更新 geoip / geosite 数据库", html`<button class="btn sm" data-action="geo">${icon("refresh", 14)}更新</button>`) : ""}
+        ${row(
+          "缓存",
+          "切换节点或规则后解析异常时清空",
+          html`<div class="btn-group">${caps.fakeipFlush ? html`<button class="btn sm" data-action="flush-fakeip">清空 Fake-IP</button>` : ""}${caps.dnsFlush ? html`<button class="btn sm" data-action="flush-dns">清空 DNS 缓存</button>` : ""}</div>`
+        )}
+        ${row("内核输出", "启动失败时查看", html`<button class="btn sm" data-action="core-log">${icon("terminal", 14)}查看</button>`)}`,
+        html`<p class="muted small section-note">${st.core.kind === "singbox"
+          ? "sing-box 读不了 Clash 配置：订阅、分组、规则和防泄露设置由 Knight 自动转换，修改设置后会重启 sing-box。"
+          : "可以同时下载几个内核，随时切换，订阅和设置不用重新导入。"}</p>`
+      )}
+
       ${section(
         "proxy",
         "代理",
@@ -134,7 +169,7 @@ export default function settings(root, ctx) {
             ${sw("useMerge", "同时启用 merge.yaml", "一般不需要，script.js 已包含全部功能")}
           </details>`
           : ""}`,
-        html`<p class="muted small section-note">参数说明见仓库 README 第六节。修改后会重新生成配置并热重载，不会断开内核。</p>`
+        html`<p class="muted small section-note">参数说明见仓库 README 第六节。${st.core.kind === "singbox" ? "sing-box 下同样生效（由 Knight 转换成等价的规则和 DNS），修改后会重启内核。" : "修改后会重新生成配置并热重载，不会断开内核。"}</p>`
       )}
 
       ${section(
@@ -173,25 +208,7 @@ export default function settings(root, ctx) {
         ${row("数据目录", st.paths.userDir, html`<button class="btn sm" data-action="open-dir">${icon("folder", 14)}打开</button>`)}`
       )}
 
-      ${section(
-        "core",
-        "内核",
-        html`
-        ${row(
-          "mihomo",
-          st.core.installed ? `版本 ${st.core.version} · ${{ running: "运行中", starting: "启动中", stopped: "已停止", error: "出错" }[st.core.status]}` : "还没有内核，请点「更新内核」下载",
-          html`<div class="btn-group">
-            <button class="btn sm" data-action="restart" ${raw(coreBusy ? "disabled" : "")}>${icon("refresh", 14)}${coreBusy === "restart" ? "重启中…" : "重启"}</button>
-            <button class="btn sm" data-action="upgrade" ${raw(coreBusy ? "disabled" : "")}>${icon("down", 14)}${coreBusy === "upgrade" ? "下载中…" : "更新内核"}</button>
-          </div>`
-        )}
-        ${st.core.error ? html`<div class="notice bad inset">${st.core.error}</div>` : ""}
-        ${row("GEO 数据", "更新 geoip / geosite 数据库", html`<button class="btn sm" data-action="geo">${icon("refresh", 14)}更新</button>`)}
-        ${row("缓存", "切换节点或规则后解析异常时清空", html`<div class="btn-group"><button class="btn sm" data-action="flush-fakeip">清空 Fake-IP</button><button class="btn sm" data-action="flush-dns">清空 DNS 缓存</button></div>`)}
-        ${row("内核输出", "启动失败时查看", html`<button class="btn sm" data-action="core-log">${icon("terminal", 14)}查看</button>`)}`
-      )}
-
-      <p class="muted small about">Knight ${st.version} · 内核 mihomo（MetaCubeX）· 防泄露规则来自本仓库 clash-verge-rev/</p>`
+      <p class="muted small about">Knight ${st.version} · 内核 mihomo（MetaCubeX）与 sing-box（SagerNet）· 防泄露规则来自本仓库 clash-verge-rev/</p>`
     );
   }
 
@@ -202,6 +219,7 @@ export default function settings(root, ctx) {
     if (!key || key === "customRules" || key === "customScript.code") return;
     let value;
     if (el.type === "checkbox") value = el.checked;
+    else if (el.type === "radio") value = el.value;
     else if (el.dataset.type === "number") value = Number(el.value);
     else if (el.dataset.type === "list") value = el.value.split(/[,，\s]+/).filter(Boolean);
     else value = el.value.trim();
@@ -260,12 +278,9 @@ export default function settings(root, ctx) {
       coreBusy = "";
       render();
     },
-    upgrade: async () => {
-      coreBusy = "upgrade";
-      render();
-      await run("更新失败", () => ctx.invoke("upgradeCore"), (r) => (r.updated ? `已更新到 ${r.version}` : `已是最新版本 ${r.version}`));
-      coreBusy = "";
-      render();
+    "install-core": (el) => {
+      const c = ctx.state.cores.find((x) => x.id === el.dataset.id);
+      run(`${c.label} 下载失败`, () => ctx.invoke("installCore", c.id), (r) => (r.updated ? `${c.label} 已更新到 ${r.version}` : `${c.label} 已是最新版本 ${r.version}`));
     },
     geo: () => run("更新失败", () => ctx.api.updateGeo(), "GEO 数据已更新"),
     "flush-fakeip": () => run("", () => ctx.api.flushFakeIP(), "已清空 Fake-IP 缓存"),

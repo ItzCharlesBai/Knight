@@ -29,8 +29,12 @@ export default function home(root, ctx) {
   function renderStatus() {
     const s = ctx.state;
     const st = s.core.status;
-    const label = { running: "内核运行中", starting: "内核启动中", stopped: "内核已停止", error: "内核出错" }[st];
-    patch($("h-status"), html`<span class="pill ${st === "running" ? "ok" : st === "error" ? "bad" : ""}"><i></i>${label}${s.core.version ? " · " + s.core.version : ""}</span>`);
+    const label = { running: "运行中", starting: "启动中", stopped: "已停止", error: "出错" }[st];
+    patch(
+      $("h-status"),
+      html`<span class="pill ${st === "running" ? "ok" : st === "error" ? "bad" : ""}"><i></i>${s.core.label} ${s.core.version || ""} · ${label}</span>
+        ${s.sidecar ? html`<span class="pill ${s.sidecar.status === "running" ? "ok" : ""}"><i></i>搭配 ${s.sidecar.label}</span>` : ""}`
+    );
   }
 
   function renderSwitches() {
@@ -224,6 +228,7 @@ export default function home(root, ctx) {
   });
 
   const timer = setInterval(() => {
+    if (ctx.hidden()) return;
     refreshProxies();
     refreshConnections();
   }, 3000);

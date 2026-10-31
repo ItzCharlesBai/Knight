@@ -215,7 +215,7 @@ export default function proxies(root, ctx) {
     render();
   });
 
-  const timer = setInterval(refresh, 5000);
+  const timer = setInterval(() => !ctx.hidden() && refresh(), 5000);
   render();
   refresh();
   return {

@@ -1,24 +1,28 @@
-// mihomo 内核进程管理：启动 / 停止 / 热重载 / 配置校验 / TUN 授权
+// 内核进程管理（mihomo 系与 sing-box 通用）：启动 / 停止 / 配置校验 / 残留进程清理 / TUN 授权
 import { execFile, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { coreFileName, GEO_FILES } from "./core-download.js";
+import { binName, CORES, GEO_FILES } from "./core-download.js";
 
 const run = promisify(execFile);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export class Core extends EventEmitter {
-  // bundledDir：随应用发布的内核目录；coreDir：用户目录下实际运行的副本（授权 TUN 需要改它的权限）
-  constructor({ bundledDir, geoDir, coreDir, workDir }) {
+  // id：CORES 里的内核；bundledDir：随应用发布的内核目录（只有 mihomo 有）；
+  // coreDir：用户目录下实际运行的副本（授权 TUN 需要改它的权限）
+  constructor({ id = "mihomo", bundledDir = "", geoDir = "", coreDir, workDir }) {
     super();
+    this.id = id;
+    this.spec = CORES[id];
+    this.kind = this.spec.kind;
     this.bundledDir = bundledDir;
     this.geoDir = geoDir;
     this.coreDir = coreDir;
     this.workDir = workDir;
-    this.bin = join(coreDir, coreFileName());
-    this.configFile = join(workDir, "config.yaml");
+    this.bin = join(coreDir, binName(id));
+    this.configFile = join(workDir, this.kind === "singbox" ? "config.json" : "config.yaml");
     this.pidFile = join(workDir, "core.pid");
     this.proc = null;
     this.status = "stopped"; // stopped | starting | running | error
@@ -32,23 +36,30 @@ export class Core extends EventEmitter {
 
   // 首次运行或随应用更新了更新的内核时，把内核复制到用户目录；GEO 数据缺了就用随应用发布的
   install() {
-    for (const name of GEO_FILES) {
-      const src = join(this.geoDir || "", name);
-      if (this.geoDir && existsSync(src) && !existsSync(join(this.workDir, name))) copyFileSync(src, join(this.workDir, name));
+    if (this.kind === "clash" && this.geoDir) {
+      for (const name of GEO_FILES) {
+        const src = join(this.geoDir, name);
+        if (existsSync(src) && !existsSync(join(this.workDir, name))) copyFileSync(src, join(this.workDir, name));
+      }
     }
-    const bundled = join(this.bundledDir, coreFileName());
+    if (!this.bundledDir) return;
+    const bundled = join(this.bundledDir, binName(this.id));
     if (!existsSync(bundled)) return;
     const bundledVersion = readText(join(this.bundledDir, "version.txt"));
     const current = readText(join(this.coreDir, "version.txt"));
     if (existsSync(this.bin) && current && compareVersion(current, bundledVersion) >= 0) return;
-    this.replaceBinary(readFileSync(bundled), bundledVersion);
+    this.replaceBinary([{ name: binName(this.id), data: readFileSync(bundled) }], bundledVersion);
   }
 
-  replaceBinary(binary, version) {
-    const tmp = this.bin + ".new";
-    writeFileSync(tmp, binary);
-    chmodSync(tmp, 0o755);
-    renameSync(tmp, this.bin);
+  // files[0] 是内核本身，其余是它需要的动态库（sing-box 的 libcronet）
+  replaceBinary(files, version) {
+    for (const file of files) {
+      const target = join(this.coreDir, file.name);
+      const tmp = target + ".new";
+      writeFileSync(tmp, file.data);
+      chmodSync(tmp, 0o755);
+      renameSync(tmp, target);
+    }
     writeFileSync(join(this.coreDir, "version.txt"), version || "");
   }
 
@@ -60,26 +71,31 @@ export class Core extends EventEmitter {
     return existsSync(this.bin);
   }
 
+  runArgs(file = this.configFile) {
+    return this.kind === "singbox" ? ["run", "-c", file, "-D", this.workDir, "--disable-color"] : ["-d", this.workDir, "-f", file];
+  }
+
   // 校验配置：返回错误信息，没问题返回空字符串
   async test(file) {
+    const args = this.kind === "singbox" ? ["check", "-c", file, "-D", this.workDir, "--disable-color"] : ["-t", "-d", this.workDir, "-f", file];
+    const isError = (l) => (this.kind === "singbox" ? /\b(FATAL|ERROR)\b/.test(l) : /level=(error|fatal)/.test(l));
     try {
-      const { stdout } = await run(this.bin, ["-t", "-d", this.workDir, "-f", file], { timeout: 60000, windowsHide: true });
-      const errors = stdout.split("\n").filter((l) => /level=(error|fatal)/.test(l));
-      return errors.map(cleanLog).join("\n");
+      const { stdout, stderr } = await run(this.bin, args, { timeout: 60000, windowsHide: true });
+      return (stdout + "\n" + stderr).split("\n").filter(isError).map(cleanLog).join("\n");
     } catch (err) {
-      const out = String(err.stdout || "") + String(err.stderr || "");
-      const errors = out.split("\n").filter((l) => /level=(error|fatal)/.test(l));
+      const out = String(err.stdout || "") + "\n" + String(err.stderr || "");
+      const errors = out.split("\n").filter(isError);
       return (errors.length ? errors : out.split("\n").filter((l) => /error|fatal|failed/i.test(l))).map(cleanLog).join("\n").trim() || err.message;
     }
   }
 
   async start() {
     if (this.proc) return;
-    if (!this.installed()) throw new Error("没有找到 mihomo 内核，请在 设置 → 内核 里下载");
+    if (!this.installed()) throw new Error(`没有找到 ${this.spec.label} 内核，请在 设置 → 内核 里下载`);
     this.wantRunning = true;
     this.setStatus("starting");
     await this.killStale();
-    const proc = spawn(this.bin, ["-d", this.workDir, "-f", this.configFile], { cwd: this.workDir, windowsHide: true });
+    const proc = spawn(this.bin, this.runArgs(), { cwd: this.workDir, windowsHide: true });
     this.proc = proc;
     if (proc.pid) writeFileSync(this.pidFile, String(proc.pid));
     const onData = (chunk) => {
@@ -87,7 +103,7 @@ export class Core extends EventEmitter {
         if (!line.trim()) continue;
         this.output.push(line);
         if (this.output.length > 500) this.output.shift();
-        if (/level=fatal/.test(line)) this.error = cleanLog(line);
+        if (this.kind === "singbox" ? /\bFATAL\b/.test(line) : /level=fatal/.test(line)) this.error = cleanLog(line);
       }
     };
     proc.stdout.on("data", onData);
@@ -164,10 +180,10 @@ export class Core extends EventEmitter {
       if (process.platform === "linux") return readlinkSync(`/proc/${pid}/exe`).replace(/ \(deleted\)$/, "") === this.bin;
       if (process.platform === "win32") {
         const { stdout } = await run("tasklist", ["/FI", `PID eq ${pid}`, "/NH"], { windowsHide: true });
-        return /mihomo\.exe/i.test(stdout);
+        return stdout.toLowerCase().includes(binName(this.id, "win32"));
       }
       const { stdout } = await run("ps", ["-p", String(pid), "-o", "comm="]);
-      return /mihomo/.test(stdout);
+      return stdout.includes(binName(this.id));
     } catch {
       return false;
     }
@@ -249,8 +265,9 @@ export function compareVersion(a, b) {
   return 0;
 }
 
-// time="..." level=error msg="xxx" → xxx
+// mihomo：time="..." level=error msg="xxx" → xxx；sing-box：+0800 2026-10-31 12:00:00 FATAL[0000] xxx → xxx
 export const cleanLog = (line) => {
   const m = /msg="((?:[^"\\]|\\.)*)"/.exec(line);
-  return (m ? m[1].replace(/\\"/g, '"') : line).trim();
+  if (m) return m[1].replace(/\\"/g, '"').trim();
+  return line.replace(/^(?:[+-]\d{4} [\d-]+ [\d:.]+ )?(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL|PANIC)\[\d+\]\s*/, "").trim();
 };

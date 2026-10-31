@@ -7,7 +7,7 @@
 | [`clash-verge-rev/script.js`](clash-verge-rev/script.js) | 订阅 → **全局扩展脚本** | 全部功能：防 DNS / WebRTC / IPv6 泄露，以及可选的优化 |
 | [`clash-verge-rev/merge.yaml`](clash-verge-rev/merge.yaml) | 订阅 → **全局扩展覆写配置** | 只有 DNS 和性能参数（不含规则） |
 
-> **新：Knight 客户端**　不想折腾 Verge？[`app/`](app/) 是一个简洁的 mihomo 桌面客户端（Windows / macOS / Linux），内置下面的全部防泄露功能，参数在设置页里点选即可，详见 [`app/README.md`](app/README.md)。
+> **新：Knight 客户端**　不想折腾 Verge？[`app/`](app/) 是一个简洁的桌面客户端（Windows / macOS / Linux），可选 mihomo、mihomo Alpha、mihomo Smart 或 sing-box 内核，两种内核还能搭配使用；内置下面的全部防泄露功能（sing-box 下自动转换成等价设置），还有本机完成的订阅转换。详见 [`app/README.md`](app/README.md)。
 
 **只装 `script.js` 就够了，推荐只用它。** 脚本会在订阅原有的 DNS 设置上叠加；Merge 只能整体替换，还没办法把规则插到最前面，所以 WebRTC 防护只能靠脚本。
 

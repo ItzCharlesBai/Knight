@@ -1,5 +1,8 @@
 // 订阅：添加（链接 / 本地文件 / 拖入）、切换、更新、编辑、删除
+import { convertFields, readConvert } from "../convert-form.js";
 import { ago, bytes, confirm, date, delegate, html, icon, modal, patch, raw } from "../lib.js";
+
+const TYPE_LABEL = { remote: "远程订阅", local: "本地配置", combo: "组合订阅" };
 
 export default function profiles(root, ctx) {
   root.innerHTML = html`
@@ -39,14 +42,14 @@ export default function profiles(root, ctx) {
         <b class="profile-name" title="${p.name}">${p.name}</b>
         ${active ? html`<span class="badge">使用中</span>` : ""}
       </div>
-      <div class="muted small">${p.type === "remote" ? "远程订阅" : "本地配置"}${p.converted ? " · 节点链接" : ""} · 更新于 ${ago(p.updatedAt)}</div>
+      <div class="muted small">${TYPE_LABEL[p.type] || "订阅"}${p.type === "combo" ? ` · ${p.sources.length} 个来源` : ""}${p.nodes ? ` · ${p.nodes} 个节点` : ""}${p.convert ? " · 已转换" : ""} · 更新于 ${ago(p.updatedAt)}</div>
       ${u.total
         ? html`<div class="usage"><div class="bar"><i style="width:${pct.toFixed(1)}%" class="${pct > 90 ? "bad" : ""}"></i></div>
             <div class="muted small">${bytes(used)} / ${bytes(u.total)}${u.expire ? html` · <span class="${expired ? "bad-text" : ""}">${date(u.expire * 1000)} ${expired ? "已过期" : "到期"}</span>` : ""}</div></div>`
         : ""}
       ${p.error ? html`<div class="bad-text small">上次更新失败：${p.error}</div>` : ""}
       <div class="profile-actions">
-        ${p.type === "remote"
+        ${p.type !== "local"
           ? html`<button class="icon-btn ${p.updating ? "spin" : ""}" data-action="update" data-id="${p.id}" title="更新" ${raw(p.updating ? "disabled" : "")}>${icon("refresh", 16)}</button>`
           : ""}
         <button class="icon-btn" data-action="edit" data-id="${p.id}" title="设置">${icon("settings", 16)}</button>
@@ -100,15 +103,23 @@ export default function profiles(root, ctx) {
     },
     edit: (el) => {
       const p = find(el.dataset.id);
+      const sourceText = (x) => (x.type === "url" ? x.url : x.type === "profile" ? "订阅：" + ((find(x.id) || {}).name || "已删除") : "粘贴的内容");
       modal({
         title: "订阅设置",
+        wide: true,
         body: html`<div class="form">
           <label>名称<input name="name" value="${p.name}" /></label>
-          ${p.type === "remote"
-            ? html`<label>订阅链接<input name="url" value="${p.url}" /></label>
+          ${p.type === "remote" ? html`<label>订阅链接<input name="url" value="${p.url}" /></label>` : ""}
+          ${p.type === "combo" ? html`<div class="muted small">来源：${p.sources.map(sourceText).join("；")}</div>` : ""}
+          ${p.type !== "local"
+            ? html`<div class="field-row">
                 <label>自动更新间隔（分钟，0 为不自动更新）<input name="interval" type="number" min="0" value="${p.interval || 0}" /></label>
-                <label>User-Agent（留空使用默认）<input name="ua" value="${p.userAgent || ""}" placeholder="clash.meta/knight" /></label>`
+                <label>User-Agent（留空使用默认）<input name="ua" value="${p.userAgent || ""}" placeholder="clash.meta/knight" /></label>
+              </div>`
             : ""}
+          <h4>订阅转换</h4>
+          <label class="checks-inline"><span><input type="checkbox" name="cv-on" ${raw(p.convert ? "checked" : "")} /> 加载时转换这份订阅（原文不变，随时可以关掉）</span></label>
+          ${convertFields(p.convert || {}, ctx.state.convert.templates)}
         </div>`,
         actions: [
           { label: "取消" },
@@ -117,7 +128,9 @@ export default function profiles(root, ctx) {
             kind: "primary",
             onClick: async (m) => {
               const v = (n) => (m.find(`[name=${n}]`) || {}).value;
-              await ctx.invoke("editProfile", p.id, { name: v("name"), url: v("url"), interval: v("interval"), userAgent: v("ua") });
+              const convert = m.find("[name=cv-on]").checked ? readConvert(m.el) : null;
+              await ctx.invoke("editProfile", p.id, { name: v("name"), url: v("url"), interval: v("interval"), userAgent: v("ua"), convert });
+              ctx.toast("已保存", "success");
             },
           },
         ],
