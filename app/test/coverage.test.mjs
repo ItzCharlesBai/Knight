@@ -209,7 +209,7 @@ test("内核下载：Juicity 的文件名，压缩包里只取客户端", () => 
 
 const mihomo = join(here, "..", "resources", "core", `${{ win32: "win", darwin: "mac", linux: "linux" }[process.platform]}-${process.arch}`, process.platform === "win32" ? "mihomo.exe" : "mihomo");
 test("mihomo -t：Surge / Loon / Quantumult X 导入的节点、Mieru、SSH", { skip: !existsSync(mihomo) && "没有内核（npm run core 下载）" }, () => {
-  const dir = mkdtempSync(join(tmpdir(), "lily-cover-"));
+  const dir = mkdtempSync(join(tmpdir(), "ondine-cover-"));
   for (const f of ["geosite.dat", "geoip.dat", "country.mmdb"]) {
     const src = join(here, "..", "resources", "geo", f);
     if (existsSync(src)) copyFileSync(src, join(dir, f));

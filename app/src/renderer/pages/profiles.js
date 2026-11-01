@@ -1,6 +1,6 @@
 // 订阅：添加（链接 / 本地文件 / 拖入）、同时使用多个、设主订阅、更新、编辑、删除
 import { convertFields, readConvert } from "../convert-form.js";
-import { ago, bytes, confirm, date, delegate, html, icon, modal, patch, raw } from "../lib.js";
+import { ago, bytes, confirm, date, delegate, explained, html, icon, modal, patch, raw } from "../lib.js";
 
 const TYPE_LABEL = { remote: "远程订阅", local: "本地配置", combo: "组合订阅" };
 const FORMAT_LABEL = { clash: "Clash 配置", links: "分享链接", singbox: "sing-box 配置", sip008: "SIP008", surge: "Surge 配置", quanx: "Quantumult X 配置", loon: "Loon 配置" };
@@ -30,7 +30,7 @@ export default function profiles(root, ctx) {
 
   function render() {
     const s = ctx.state;
-    patch($("s-error"), s.apply.error ? html`<div class="notice bad">${s.apply.error}</div>` : "");
+    patch($("s-error"), s.apply.error ? explained(s.apply.error) : "");
     if (!s.profiles.length) {
       patch($("s-summary"), "");
       return patch($("s-list"), html`<div class="empty">还没有订阅，粘贴机场提供的订阅链接后点「导入」</div>`);
@@ -138,7 +138,7 @@ export default function profiles(root, ctx) {
           ${p.type !== "local"
             ? html`<div class="field-row">
                 <label>自动更新间隔（分钟，0 为不自动更新）<input name="interval" type="number" min="0" value="${p.interval || 0}" /></label>
-                <label>User-Agent（留空使用默认）<input name="ua" value="${p.userAgent || ""}" placeholder="clash.meta/lily" /></label>
+                <label>User-Agent（留空使用默认）<input name="ua" value="${p.userAgent || ""}" placeholder="clash.meta/ondine" /></label>
               </div>`
             : ""}
           <h4>订阅转换</h4>

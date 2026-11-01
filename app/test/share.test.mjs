@@ -14,7 +14,7 @@ const SUB = yaml.load(readFileSync(join(here, "..", "..", "test", "fixtures", "s
 const LINKS = ["trojan://pw@hk.example.com:443#香港 01", "hysteria2://pw@jp.example.com:443#日本 02", "vless://0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3@sg.example.com:443?security=tls&sni=sg.example.com#SG 03", "trojan://pw@x.example.com:443#剩余流量 10G"].join("\n");
 
 test("导入时自动转换：分享链接订阅按地区分组，Clash 配置原样使用，改过选项后不再自动套用", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "lily-auto-"));
+  const dir = mkdtempSync(join(tmpdir(), "ondine-auto-"));
   let body = Buffer.from(LINKS).toString("base64");
   const profiles = new Profiles(dir, async () => new Response(body));
   const item = await profiles.add({ url: "https://sub.example.com/links" });
@@ -75,7 +75,7 @@ test("共享订阅：带密钥的地址返回转换结果，别的请求一律 4
 });
 
 test("二维码：路径只含绘图指令", () => {
-  const { size, d } = qrPath("vless://uuid@1.2.3.4:443?security=reality#Lily");
+  const { size, d } = qrPath("vless://uuid@1.2.3.4:443?security=reality#Ondine");
   assert.ok(size >= 21);
   assert.match(d, /^(M\d+ \d+h\d+v1h-\d+z)+$/);
 });

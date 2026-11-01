@@ -189,7 +189,7 @@ export default function convert(root, ctx) {
     },
     export: async () => {
       try {
-        const file = await ctx.invoke("convertExport", Object.assign(collect(), { name: "lily-" + draft.target }));
+        const file = await ctx.invoke("convertExport", Object.assign(collect(), { name: "ondine-" + draft.target }));
         if (file) ctx.toast("已导出到 " + file, "success");
       } catch (err) {
         ctx.toast(err.message, "error");

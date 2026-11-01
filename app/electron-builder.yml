@@ -1,6 +1,6 @@
 # 打包配置：先运行 npm run core（或 dist:* 脚本会自动下载对应平台的内核和 GEO 数据）
-appId: io.github.lily.app
-productName: Lily
+appId: io.github.ondine.app
+productName: Ondine
 copyright: MIT
 directories:
   output: dist
@@ -33,7 +33,7 @@ publish: null
 icon: resources/icons/icon.png
 protocols:
   - name: Clash 订阅
-    schemes: [clash, mihomo, lily]
+    schemes: [clash, mihomo, ondine]
 
 win:
   target:
@@ -44,15 +44,15 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-  shortcutName: Lily
-  artifactName: Lily-${version}-win-${arch}-setup.${ext}
+  shortcutName: Ondine
+  artifactName: Ondine-${version}-win-${arch}-setup.${ext}
 
 mac:
   target:
     - target: dmg
       arch: [arm64, x64]
   category: public.app-category.utilities
-  artifactName: Lily-${version}-mac-${arch}.${ext}
+  artifactName: Ondine-${version}-mac-${arch}.${ext}
   # 内核需要 setuid 才能开虚拟网卡，所以它放在用户目录运行，不在签名的 .app 里修改
 
 linux:
@@ -62,8 +62,8 @@ linux:
     - target: deb
       arch: [x64, arm64]
   category: Network
-  maintainer: Lily
+  maintainer: Ondine
   synopsis: 多内核桌面代理客户端
-  artifactName: Lily-${version}-linux-${arch}.${ext}
+  artifactName: Ondine-${version}-linux-${arch}.${ext}
 deb:
   depends: [libcap2-bin, policykit-1]

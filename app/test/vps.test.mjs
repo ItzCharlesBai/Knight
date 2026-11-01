@@ -68,7 +68,7 @@ test("部署脚本：语法正确，占位符都替换了，配置原样写入",
   const dep = prepare({ protocols: ALL });
   for (const [name, script] of [
     ["deploy", deployScript(dep, { version: "v1.14.4", mirror: "https://ghfast.top/" })],
-    ["upload", deployScript(dep, { upload: { path: "/tmp/lily-x.tar.gz", sha256: "ab".repeat(32) } })],
+    ["upload", deployScript(dep, { upload: { path: "/tmp/ondine-x.tar.gz", sha256: "ab".repeat(32) } })],
     ["uninstall", uninstallScript()],
     ["logs", serviceScript("logs")],
     ["restart", serviceScript("restart")],
@@ -78,7 +78,7 @@ test("部署脚本：语法正确，占位符都替换了，配置原样写入",
     assert.equal(/__(?!GROUP__)[A-Z_]+__/.exec(script), null, name);
   }
   const script = deployScript(dep);
-  const json = /config\.json\.new <<'LILY_EOF'\n([\s\S]*?)\nLILY_EOF/.exec(script)[1];
+  const json = /config\.json\.new <<'ONDINE_EOF'\n([\s\S]*?)\nONDINE_EOF/.exec(script)[1];
   assert.deepEqual(JSON.parse(json), serverConfig(dep));
   assert.ok(script.includes(dep.cert.cert.trim()));
   assert.throws(() => deployScript(dep, { version: "1.14; rm -rf /" }), /版本/);
@@ -86,7 +86,7 @@ test("部署脚本：语法正确，占位符都替换了，配置原样写入",
   assert.throws(() => serviceScript("rm"), /未知/);
   // 低端口在 OpenRC 下只能用 root 跑
   assert.ok(!/command_user/.test(deployScript(dep)));
-  assert.ok(/command_user="lily"/.test(deployScript(prepare({ protocols: [{ id: "hysteria2", port: 8443 }] }))));
+  assert.ok(/command_user="ondine"/.test(deployScript(prepare({ protocols: [{ id: "hysteria2", port: 8443 }] }))));
 });
 
 test("服务器概况：在本机跑一遍概况脚本", () => {
@@ -112,7 +112,7 @@ test("客户端节点：分享链接来回转换不丢字段", () => {
 
 const mihomo = join(here, "..", "resources", "core", `${{ win32: "win", darwin: "mac", linux: "linux" }[process.platform]}-${process.arch}`, process.platform === "win32" ? "mihomo.exe" : "mihomo");
 test("mihomo -t：部署出来的节点", { skip: !existsSync(mihomo) && "没有内核（npm run core 下载）" }, () => {
-  const dir = mkdtempSync(join(tmpdir(), "lily-vps-"));
+  const dir = mkdtempSync(join(tmpdir(), "ondine-vps-"));
   for (const f of ["geosite.dat", "geoip.dat", "country.mmdb"]) {
     const src = join(here, "..", "resources", "geo", f);
     if (existsSync(src)) copyFileSync(src, join(dir, f));
@@ -128,7 +128,7 @@ test("mihomo -t：部署出来的节点", { skip: !existsSync(mihomo) && "没有
 // sing-box 服务端配置：有 sing-box 时（SINGBOX_BIN=… npm test）用 sing-box check 校验
 const singbox = process.env.SINGBOX_BIN;
 test("sing-box check：服务端配置", { skip: !singbox && "设置 SINGBOX_BIN 后校验" }, () => {
-  const dir = mkdtempSync(join(tmpdir(), "lily-sbs-"));
+  const dir = mkdtempSync(join(tmpdir(), "ondine-sbs-"));
   const dep = prepare({ protocols: ALL });
   writeFileSync(join(dir, "cert.pem"), dep.cert.cert);
   writeFileSync(join(dir, "key.pem"), dep.cert.key);
@@ -141,7 +141,7 @@ function sshServer(password) {
   const hostKey = ssh2.utils.generateKeyPairSync("ed25519").private;
   const server = new ssh2.Server({ hostKeys: [hostKey] }, (client) => {
     client.on("error", () => {}); // 客户端拒绝主机指纹时会断开，服务端这边忽略
-    client.on("authentication", (ctx) => (ctx.method === "password" && ctx.username === "lily" && ctx.password === password ? ctx.accept() : ctx.reject(["password"])));
+    client.on("authentication", (ctx) => (ctx.method === "password" && ctx.username === "ondine" && ctx.password === password ? ctx.accept() : ctx.reject(["password"])));
     client.on("ready", () =>
       client.on("session", (accept) =>
         accept().on("exec", (ok, _no, info) => {
@@ -171,10 +171,10 @@ const memoryVault = { secure: () => false, encrypt: (s) => s, decrypt: (s) => s 
 
 test("SSH：首次记住指纹、指纹变了拒绝、密码错误、执行命令、经 SOCKS5", async () => {
   const { server, port } = await sshServer("pw");
-  const dir = mkdtempSync(join(tmpdir(), "lily-ssh-"));
+  const dir = mkdtempSync(join(tmpdir(), "ondine-ssh-"));
   const servers = new Servers(join(dir, "servers.json"), memoryVault);
   try {
-    const item = servers.add({ name: "本机", host: "127.0.0.1", port, username: "lily", auth: "password", password: "pw" });
+    const item = servers.add({ name: "本机", host: "127.0.0.1", port, username: "ondine", auth: "password", password: "pw" });
     assert.equal(servers.list()[0].secret, undefined, "列表里不带凭据");
     assert.equal(servers.list()[0].hasSecret, true);
     const seen = [];
@@ -182,8 +182,8 @@ test("SSH：首次记住指纹、指纹变了拒绝、密码错误、执行命�
     const s = await pool.session(item.id);
     assert.match(seen[0], /^SHA256:[A-Za-z0-9+/]{43}$/);
     assert.equal(s, await pool.session(item.id), "连接复用");
-    const r = await exec(s.client, "cat", { stdin: "你好，Lily\n" });
-    assert.equal(r.out, "你好，Lily\n");
+    const r = await exec(s.client, "cat", { stdin: "你好，Ondine\n" });
+    assert.equal(r.out, "你好，Ondine\n");
     const lines = [];
     await exec(s.client, "sh -s", { stdin: "echo a; echo b >&2; printf c", onLine: (l, err) => lines.push((err ? "!" : "") + l) });
     assert.deepEqual(lines.sort(), ["!b", "a", "c"]);
@@ -248,8 +248,8 @@ test("部署流程：下载失败时本机上传再部署", async () => {
           stream.emit("close", code);
         };
         if (command.startsWith("umask 077; cat >")) return reply("", 0);
-        if (/UPLOAD='\/tmp\/lily-[0-9a-f]+\.tar\.gz'/.test(stdin)) return reply("@@LILY arch amd64\n@@LILY step 写入配置\n@@LILY bbr on\n@@LILY done sing-box version 1.14.4\n", 0);
-        reply("@@LILY arch arm64\n@@LILY step 下载 sing-box 1.14.4\n@@LILY need-upload arm64\n", 3);
+        if (/UPLOAD='\/tmp\/ondine-[0-9a-f]+\.tar\.gz'/.test(stdin)) return reply("@@ONDINE arch amd64\n@@ONDINE step 写入配置\n@@ONDINE bbr on\n@@ONDINE done sing-box version 1.14.4\n", 0);
+        reply("@@ONDINE arch arm64\n@@ONDINE step 下载 sing-box 1.14.4\n@@ONDINE need-upload arm64\n", 3);
       });
       stream.end = (data) => input.end(data);
       cb(null, stream);

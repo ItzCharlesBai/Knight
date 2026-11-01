@@ -7,7 +7,7 @@ import yaml from "js-yaml";
 import { filenameFromDisposition, parseSubscription, parseUserinfo } from "./convert.js";
 import { applyConvert, DEFAULT_CONVERT, processNodes } from "./nodes.js";
 
-export const USER_AGENT = "clash.meta/lily";
+export const USER_AGENT = "clash.meta/ondine";
 // 不是 Clash 配置的订阅（分享链接、sing-box、SIP008、Surge / Quantumult X / Loon）导入时自动转换：按地区分组、加国旗、去重、去掉信息节点。
 // 用户在「订阅设置」里改过转换选项后（auto: false）就不再自动套用
 export const AUTO_CONVERT = { template: "region", dropInfo: true, emoji: true, dedupe: true };

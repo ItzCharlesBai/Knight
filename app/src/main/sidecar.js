@@ -98,7 +98,7 @@ export function sidecarConfig(kind, entries) {
         "find-process-mode": "off",
         dns: { enable: true, ipv6: true, nameserver: ["https://223.5.5.5/dns-query", "https://1.12.12.12/dns-query"], "default-nameserver": ["223.5.5.5", "119.29.29.29"] },
         proxies: entries.map((e) => e.node),
-        listeners: entries.map((e, i) => ({ name: `lily-${i}`, type: "socks", listen: "127.0.0.1", port: e.port, udp: true, proxy: e.node.name })),
+        listeners: entries.map((e, i) => ({ name: `ondine-${i}`, type: "socks", listen: "127.0.0.1", port: e.port, udp: true, proxy: e.node.name })),
         rules: ["MATCH,DIRECT"],
       },
       { lineWidth: -1, noRefs: true }

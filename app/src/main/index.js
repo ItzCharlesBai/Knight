@@ -1,4 +1,4 @@
-// Lily 主进程：窗口、托盘、设置、订阅、内核（多内核 + 搭配使用）与系统代理
+// Ondine 主进程：窗口、托盘、设置、订阅、内核（多内核 + 搭配使用）与系统代理
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, safeStorage, session, shell, Tray } from "electron";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -33,14 +33,15 @@ const bundledCoreDir = isDev ? join(appRoot, "resources", "core", `${OS}-${proce
 const bundledGeoDir = join(resourcesDir, "geo");
 const extensionsDir = isDev ? join(appRoot, "..", "clash-verge-rev") : join(process.resourcesPath, "extensions");
 
-if (process.env.LILY_USER_DATA) app.setPath("userData", process.env.LILY_USER_DATA);
+if (process.env.ONDINE_USER_DATA) app.setPath("userData", process.env.ONDINE_USER_DATA);
 const userDir = app.getPath("userData");
 
-// 应用改名前叫 Knight：第一次以 Lily 启动时把旧的设置、订阅和内核搬过来
-function migrateFromKnight() {
-  const old = join(app.getPath("appData"), "Knight");
-  if (process.env.LILY_USER_DATA || existsSync(join(userDir, "settings.json")) || !existsSync(join(old, "settings.json"))) return;
-  for (const name of ["settings.json", "profiles", "cores"]) {
+// 应用以前叫 Knight、Lily、Chelle：第一次以 Ondine 启动时把旧的设置、订阅、服务器和内核搬过来（找最近用过的那个）
+function migrateOldData() {
+  if (process.env.ONDINE_USER_DATA || existsSync(join(userDir, "settings.json"))) return;
+  const old = ["Chelle", "Lily", "Knight"].map((name) => join(app.getPath("appData"), name)).find((dir) => existsSync(join(dir, "settings.json")));
+  if (!old) return;
+  for (const name of ["settings.json", "profiles", "servers.json", "cores"]) {
     try {
       if (existsSync(join(old, name))) cpSync(join(old, name), join(userDir, name), { recursive: true });
     } catch {
@@ -57,7 +58,7 @@ if (!app.requestSingleInstanceLock()) {
 
 function main() {
   mkdirSync(userDir, { recursive: true });
-  migrateFromKnight();
+  migrateOldData();
   // 旧版本把 mihomo 放在 userData/core，搬到 userData/cores/mihomo
   if (existsSync(join(userDir, "core")) && !existsSync(join(userDir, "cores", "mihomo"))) {
     mkdirSync(join(userDir, "cores"), { recursive: true });
@@ -65,6 +66,8 @@ function main() {
   }
   const store = new Store(join(userDir, "settings.json"));
   const settings = () => store.get();
+  // 旧版本的主题（深色、跟随系统等）换成默认的晨雾
+  if (!["mist", "rain", "sun"].includes(settings().theme)) store.set({ theme: settings().theme === "rain" ? "rain" : "mist" });
   if (!CORES[settings().core] || CORES[settings().core].sidecarOnly) store.set({ core: "mihomo" });
   const profiles = new Profiles(join(userDir, "profiles"), (url, opts) => httpFetch(url, opts));
 
@@ -117,7 +120,7 @@ function main() {
   async function fetchSession(viaProxy) {
     const key = viaProxy ? "proxy" : "direct";
     if (!sessions[key]) {
-      const ses = session.fromPartition("lily-" + key);
+      const ses = session.fromPartition("ondine-" + key);
       await ses.setProxy(viaProxy ? { proxyRules: `http://127.0.0.1:${settings().mixedPort}`, proxyBypassRules: "<local>" } : { mode: "direct" });
       sessions[key] = ses;
     }
@@ -202,7 +205,7 @@ function main() {
     });
   }
 
-  // sing-box 用到的规则集由 Lily 下载到本地（失败时自动改走代理），内核启动时不必联网
+  // sing-box 用到的规则集由 Ondine 下载到本地（失败时自动改走代理），内核启动时不必联网
   async function ensureRuleSets(tags) {
     mkdirSync(ruleSetDir, { recursive: true });
     const week = 7 * 86400000;
@@ -312,7 +315,7 @@ function main() {
         // 搭配内核没有控制接口：进程活着就算运行中
         setTimeout(() => sc.proc && sc.setStatus("running"), 800);
       } catch (err) {
-        lastApply.logs = lastApply.logs.concat({ source: "Lily", level: "error", message: `搭配内核 ${CORES[plan.id].label} 启动失败：${err.message}` });
+        lastApply.logs = lastApply.logs.concat({ source: "Ondine", level: "error", message: `搭配内核 ${CORES[plan.id].label} 启动失败：${err.message}` });
       }
     }
   }
@@ -326,7 +329,7 @@ function main() {
     const parts = ids.map((id) => ({ label: profiles.get(id).name, config: profiles.parsed(id) }));
     const r = convert(parts, { options: sh.options, target, leakGuard: sh.leakGuard, scriptSource: readExtension("script.js") });
     const first = profiles.get(ids[0]);
-    return { text: r.text, userinfo: ids.length === 1 ? first.userinfo : null, name: ids.length === 1 ? first.name : "Lily" };
+    return { text: r.text, userinfo: ids.length === 1 ? first.userinfo : null, name: ids.length === 1 ? first.name : "Ondine" };
   });
   async function syncShare() {
     const sh = settings().share;
@@ -396,7 +399,7 @@ function main() {
     const sv = servers.get(id);
     if (!sv || !sv.deployment) throw new Error("这台服务器还没有部署");
     const nodes = clientNodes(sv.deployment, sv.name, sv.host);
-    const text = `# Lily 部署在 ${sv.name}（${sv.host}）上的节点\n` + yaml.dump(wrapProxies(nodes), { lineWidth: -1, noRefs: true });
+    const text = `# Ondine 部署在 ${sv.name}（${sv.host}）上的节点\n` + yaml.dump(wrapProxies(nodes), { lineWidth: -1, noRefs: true });
     let pid = sv.profileId;
     if (pid && profiles.get(pid)) profiles.write(pid, text);
     else {
@@ -461,11 +464,11 @@ function main() {
     if (isDev) return;
     if (process.platform === "linux") {
       const dir = join(homedir(), ".config", "autostart");
-      const file = join(dir, "lily.desktop");
+      const file = join(dir, "ondine.desktop");
       if (!enable) return rmSync(file, { force: true });
       mkdirSync(dir, { recursive: true });
       const exec = process.env.APPIMAGE || process.execPath;
-      writeFileSync(file, `[Desktop Entry]\nType=Application\nName=Lily\nExec="${exec}" --hidden\nX-GNOME-Autostart-enabled=true\n`);
+      writeFileSync(file, `[Desktop Entry]\nType=Application\nName=Ondine\nExec="${exec}" --hidden\nX-GNOME-Autostart-enabled=true\n`);
     } else {
       app.setLoginItemSettings({ openAtLogin: enable, args: ["--hidden"] });
     }
@@ -547,7 +550,7 @@ function main() {
       }
     }
     const after = store.set(patch);
-    if (before.theme !== after.theme) nativeTheme.themeSource = after.theme;
+    if (before.theme !== after.theme) nativeTheme.themeSource = nativeThemeOf(after.theme);
     if (before.autoLaunch !== after.autoLaunch) syncAutoLaunch();
     if (before.mixedPort !== after.mixedPort) delete sessions.proxy;
 
@@ -651,7 +654,7 @@ function main() {
   async function handleDeepLink(link) {
     try {
       const url = new URL(link);
-      if (!/^(clash|mihomo|lily):$/.test(url.protocol)) return;
+      if (!/^(clash|mihomo|ondine):$/.test(url.protocol)) return;
       const sub = url.searchParams.get("url");
       if (!sub) return;
       showWindow("profiles");
@@ -793,7 +796,7 @@ function main() {
     convertPreview: async ({ sources, options, target, leakGuard }) => convert(await convertSources(sources), { options, target, leakGuard, scriptSource: readExtension("script.js") }),
     convertExport: async ({ sources, options, target, leakGuard, name }) => {
       const r = convert(await convertSources(sources), { options, target, leakGuard, scriptSource: readExtension("script.js") });
-      const res = await dialog.showSaveDialog(win, { defaultPath: `${name || "lily"}.${r.ext}` });
+      const res = await dialog.showSaveDialog(win, { defaultPath: `${name || "ondine"}.${r.ext}` });
       if (res.canceled || !res.filePath) return null;
       writeFileSync(res.filePath, r.text);
       return res.filePath;
@@ -855,11 +858,11 @@ function main() {
     vpsService: (id, action) =>
       vpsTask(id, { logs: "读取日志", status: "查询状态", uninstall: "卸载" }[action] || "操作服务", async () => {
         const r = await runRoot(await vpsSession(id), action === "uninstall" ? uninstallScript() : serviceScript(action), { timeout: 180000 });
-        const failure = /@@LILY error (.*)/.exec(r.out);
+        const failure = /@@ONDINE error (.*)/.exec(r.out);
         if (failure) throw new Error(failure[1]);
         if (action === "uninstall") servers.touch(id, { deployment: null });
         refreshServer(id).catch(() => {});
-        return (r.out.replace(/^@@LILY.*\n?/gm, "") + r.err).trim();
+        return (r.out.replace(/^@@ONDINE.*\n?/gm, "") + r.err).trim();
       }),
     // 终端：以登录用户执行一条命令
     vpsRun: (id, command) =>
@@ -881,7 +884,7 @@ function main() {
     quit: () => quit(),
   };
 
-  ipcMain.handle("lily", async (_e, method, ...args) => {
+  ipcMain.handle("ondine", async (_e, method, ...args) => {
     try {
       if (!methods[method]) throw new Error("未知方法：" + method);
       return { data: await methods[method](...args) };
@@ -904,10 +907,10 @@ function main() {
       minWidth: 900,
       minHeight: 600,
       show: false,
-      title: "Lily",
+      title: "Ondine",
       icon: join(resourcesDir, "icons", "icon.png"),
       autoHideMenuBar: true,
-      backgroundColor: settings().theme === "dark" || (settings().theme === "system" && nativeTheme.shouldUseDarkColors) ? "#241a18" : "#f6eee2",
+      backgroundColor: settings().theme === "rain" ? "#e4e2da" : "#ebe6da",
       webPreferences: { preload: join(here, "..", "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
     win.removeMenu();
@@ -959,13 +962,13 @@ function main() {
     const s = settings();
     const proxying = core.status === "running" && (sysproxyOn || s.tun.enable);
     tray.setImage(trayIcon(proxying));
-    tray.setToolTip(`Lily · ${core.spec.label} · ${MODES[s.mode]}模式` + (sysproxyOn ? " · 系统代理" : "") + (s.tun.enable ? " · 虚拟网卡" : "") + (core.status === "running" ? "" : " · 内核未运行"));
+    tray.setToolTip(`Ondine · ${core.spec.label} · ${MODES[s.mode]}模式` + (sysproxyOn ? " · 系统代理" : "") + (s.tun.enable ? " · 虚拟网卡" : "") + (core.status === "running" ? "" : " · 内核未运行"));
     const toggle = (patch) => setSettings(patch).catch((err) => (err.message === "NEED_TUN_PERMISSION" ? showWindow("settings") : toast(err.message, "error")));
     const active = activeIds();
     const current = profiles.get(active[0]);
     const installed = CORE_IDS.filter((id) => !CORES[id].sidecarOnly && existsSync(binPath(id)));
     const menu = Menu.buildFromTemplate([
-      { label: "打开 Lily", click: () => showWindow() },
+      { label: "打开 Ondine", click: () => showWindow() },
       { type: "separator" },
       ...Object.entries(MODES).map(([mode, label]) => ({ label: label + "模式", type: "radio", checked: s.mode === mode, click: () => toggle({ mode }) })),
       { type: "separator" },
@@ -1011,11 +1014,11 @@ function main() {
     app.exit(0);
   }
 
-  for (const scheme of ["clash", "mihomo", "lily"]) {
+  for (const scheme of ["clash", "mihomo", "ondine"]) {
     if (isDev && process.platform === "win32") app.setAsDefaultProtocolClient(scheme, process.execPath, [appRoot]);
     else if (!isDev) app.setAsDefaultProtocolClient(scheme);
   }
-  const linkIn = (argv) => argv.find((a) => /^(clash|mihomo|lily):\/\//i.test(a));
+  const linkIn = (argv) => argv.find((a) => /^(clash|mihomo|ondine):\/\//i.test(a));
 
   app.on("second-instance", (_e, argv) => {
     const link = linkIn(argv);
@@ -1047,7 +1050,7 @@ function main() {
   }
 
   app.whenReady().then(async () => {
-    nativeTheme.themeSource = settings().theme;
+    nativeTheme.themeSource = nativeThemeOf(settings().theme);
     const hidden = process.argv.includes("--hidden") || (settings().silentStart && !isDev);
     createWindow(!hidden);
     try {
@@ -1073,6 +1076,9 @@ function main() {
     if (link) handleDeepLink(link);
   });
 }
+
+// 界面只有浅色（三种天气），系统控件也用浅色
+const nativeThemeOf = () => "light";
 
 function pick(obj, keys) {
   const out = {};

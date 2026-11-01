@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMaxYMin slice"><defs>
+<filter id="pen" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="13"/></filter>
+<filter id="bloom" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="70"/></filter>
+<mask id="panes"><path d="M1080 240 A200 200 0 0 1 1480 240 V940 H1080 Z" fill="#fff"/><g fill="#000"><rect x="1270" y="40" width="20" height="900"/><rect x="1080" y="230" width="400" height="20"/><rect x="1080" y="478" width="400" height="16"/><rect x="1080" y="709" width="400" height="16"/></g></mask>
+</defs>
+<g transform="translate(-60 0) skewX(-16)">
+<path d="M1080 240 A200 200 0 0 1 1480 240 V940 H1080 Z" fill="#fff" fill-opacity="0.35" filter="url(#bloom)"/>
+<g filter="url(#pen)"><rect x="1060" y="20" width="440" height="940" fill="#fff" mask="url(#panes)"/></g>
+</g>
+</svg>

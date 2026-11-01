@@ -46,7 +46,7 @@ $k = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings'
 Set-ItemProperty -Path $k -Name ProxyEnable -Value ${enable ? 1 : 0}
 ${enable ? `Set-ItemProperty -Path $k -Name ProxyServer -Value '${host}:${port}'\nSet-ItemProperty -Path $k -Name ProxyOverride -Value '${bypass.replace(/'/g, "''")}'` : ""}
 $sig = '[DllImport("wininet.dll", SetLastError = true)] public static extern bool InternetSetOption(IntPtr h, int o, IntPtr b, int l);'
-$t = Add-Type -MemberDefinition $sig -Name WinInet -Namespace Lily -PassThru
+$t = Add-Type -MemberDefinition $sig -Name WinInet -Namespace Ondine -PassThru
 $t::InternetSetOption([IntPtr]::Zero, 39, [IntPtr]::Zero, 0) | Out-Null
 $t::InternetSetOption([IntPtr]::Zero, 37, [IntPtr]::Zero, 0) | Out-Null
 `;

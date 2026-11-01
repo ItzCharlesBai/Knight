@@ -6,27 +6,29 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src http://127.0.0.1:* ws://127.0.0.1:*"
     />
-    <title>Lily</title>
+    <title>Ondine</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <canvas id="scene" class="scene" aria-hidden="true"></canvas>
+    <div class="scene-static" aria-hidden="true"><i class="light"></i><i class="leaves"></i></div>
     <div class="app">
       <aside class="sidebar">
-        <div class="film-edge" aria-hidden="true"><span>LILY 400 · ÉTÉ · 夏 · 24 ▸ 25A</span></div>
+        <div class="awning" aria-hidden="true"></div>
         <div class="brand">
           <img src="../../resources/icons/icon.png" alt="" />
-          <b>Lily</b>
-          <span class="seal" aria-hidden="true">百合</span>
+          <div class="brand-name"><b>Ondine</b><small>Café de la Seine</small></div>
         </div>
-        <div class="brand-sub">Un été sans fin.</div>
+        <div class="tagline" aria-hidden="true">塞纳河畔的街角咖啡</div>
         <nav id="nav"></nav>
         <div class="side-traffic" id="side-traffic"></div>
-        <div class="credits" aria-hidden="true"><b>Lily · Édition d’été</b><br />mihomo · sing-box · xray · juicity</div>
+        <div class="credits" aria-hidden="true">Ondine presents · a café de la Seine picture<br /><b>mihomo · sing-box · xray · juicity</b><br />Paris · London · MMXXVI</div>
       </aside>
       <main class="content">
         <div class="page" id="page"></div>
       </main>
     </div>
+    <canvas id="burst" class="burst" aria-hidden="true"></canvas>
     <div id="toasts"></div>
     <script type="module" src="app.js"></script>
   </body>

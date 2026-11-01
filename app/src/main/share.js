@@ -1,5 +1,5 @@
 // 共享订阅：在局域网里开一个只读的订阅地址，手机、平板上的客户端（Shadowrocket、v2rayNG、Surge、Clash 等）直接订阅，
-// 内容就是 Lily 里的订阅按转换选项处理后的结果，Lily 这边订阅更新了，那边下次更新时自动同步，不用复制粘贴。
+// 内容就是 Ondine 里的订阅按转换选项处理后的结果，Ondine 这边订阅更新了，那边下次更新时自动同步，不用复制粘贴。
 // 地址里带随机令牌，不知道令牌的请求一律 404；只在用户打开后监听
 import { timingSafeEqual } from "node:crypto";
 import http from "node:http";
@@ -93,7 +93,7 @@ export class ShareServer {
       const headers = {
         "Content-Type": target[2] + "; charset=utf-8",
         "Cache-Control": "no-store",
-        "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(name || "Lily")}`,
+        "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(name || "Ondine")}`,
         "profile-update-interval": "6",
       };
       if (userinfo) headers["subscription-userinfo"] = ["upload", "download", "total", "expire"].filter((k) => userinfo[k] !== undefined).map((k) => `${k}=${Math.round(userinfo[k])}`).join("; ");

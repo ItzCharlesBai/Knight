@@ -1,5 +1,6 @@
 // 概览：开关、模式、当前节点、实时流量、防泄露状态、订阅用量
 import { bytes, date, delayClass, delayText, delegate, html, icon, patch, raw, speed, toggle } from "../lib.js";
+import { explain } from "../explain.js";
 import { chainOf, delayOf, loadProxies, mainGroup } from "../proxy-data.js";
 
 const MODES = [
@@ -136,7 +137,7 @@ export default function home(root, ctx) {
           ${item(s.settings.tun.enable, s.settings.tun.enable ? `WebRTC 已受保护（${webrtcText}）` : "未开启虚拟网卡", s.settings.tun.enable ? "" : "系统代理模式下 WebRTC 不经过代理，会暴露真实 IP")}
           ${s.settings.tun.enable ? item(s.settings.tun.strictRoute, s.settings.tun.strictRoute ? "严格路由已开启" : "严格路由未开启", s.settings.tun.strictRoute ? "" : "Windows 可能绕过虚拟网卡发出 DNS 查询") : ""}
           ${warns.map((w) => item(false, w.message))}
-          ${s.apply.error ? item(false, s.apply.error) : ""}
+          ${s.apply.error ? item(false, explain(s.apply.error).title, explain(s.apply.error).why) : ""}
         </ul>
         <div class="row-actions">
           <button class="btn sm" data-action="open" data-url="https://browserleaks.com/webrtc">${icon("external", 14)}WebRTC 检测</button>

@@ -1,5 +1,5 @@
 // 设置：代理端口、系统代理、虚拟网卡、防泄露（script.js 参数）、自定义规则与脚本、应用、内核
-import { confirm, delegate, html, icon, modal, patch, raw, toggle } from "../lib.js";
+import { confirm, delegate, explained, html, icon, modal, patch, raw, toggle } from "../lib.js";
 
 const get = (obj, path) => path.split(".").reduce((o, k) => (o == null ? o : o[k]), obj);
 // "tun.stack" + 值 → { tun: { stack: 值 } }
@@ -80,7 +80,7 @@ export default function settings(root, ctx) {
             : "还没有内核，请先下载",
           html`<button class="btn sm" data-action="restart" ${raw(coreBusy ? "disabled" : "")}>${icon("refresh", 14)}${coreBusy === "restart" ? "重启中…" : "重启内核"}</button>`
         )}
-        ${st.core.error ? html`<div class="notice bad inset">${st.core.error}</div>` : ""}
+        ${st.core.error ? explained(st.core.error) : ""}
         ${caps.geo ? row("GEO 数据", "更新 geoip / geosite 数据库", html`<button class="btn sm" data-action="geo">${icon("refresh", 14)}更新</button>`) : ""}
         ${row(
           "缓存",
@@ -89,7 +89,7 @@ export default function settings(root, ctx) {
         )}
         ${row("内核输出", "启动失败时查看", html`<button class="btn sm" data-action="core-log">${icon("terminal", 14)}查看</button>`)}`,
         html`<p class="muted small section-note">${st.core.kind === "singbox"
-          ? "sing-box 读不了 Clash 配置：订阅、分组、规则和防泄露设置由 Lily 自动转换，修改设置后会重启 sing-box。"
+          ? "sing-box 读不了 Clash 配置：订阅、分组、规则和防泄露设置由 Ondine 自动转换，修改设置后会重启 sing-box。"
           : "可以同时下载几个内核，随时切换，订阅和设置不用重新导入。"}</p>`
       )}
 
@@ -180,7 +180,7 @@ export default function settings(root, ctx) {
             ${sw("useMerge", "同时启用 merge.yaml", "一般不需要，script.js 已包含全部功能")}
           </details>`
           : ""}`,
-        html`<p class="muted small section-note">参数说明见仓库 README 第六节。${st.core.kind === "singbox" ? "sing-box 下同样生效（由 Lily 转换成等价的规则和 DNS），修改后会重启内核。" : "修改后会重新生成配置并热重载，不会断开内核。"}</p>`
+        html`<p class="muted small section-note">参数说明见仓库 README 第六节。${st.core.kind === "singbox" ? "sing-box 下同样生效（由 Ondine 转换成等价的规则和 DNS），修改后会重启内核。" : "修改后会重新生成配置并热重载，不会断开内核。"}</p>`
       )}
 
       ${section(
@@ -209,17 +209,18 @@ export default function settings(root, ctx) {
         ${sw("autoLaunch", "开机启动", "")}
         ${sw("silentStart", "静默启动", "启动时不打开窗口，只在托盘显示")}
         ${sw("closeToTray", "关闭窗口时留在托盘", "关闭后内核继续运行；从托盘菜单退出")}
-        ${select("theme", "外观", "", [
-          ["light", "夏日（默认）"],
-          ["dark", "黄昏"],
-          ["system", "跟随系统"],
+        ${select("theme", "窗外的天气", "界面背景的光影：晨雾里的光束、细雨、或者晴天落在墙上的窗光和叶影", [
+          ["mist", "晨雾（默认）"],
+          ["rain", "细雨"],
+          ["sun", "晴光"],
         ])}
+        ${sw("motion", "动态效果", "光束、雾、微尘、细雨的动画和操作时的光点；关掉更省电")}
         ${sw("updateViaProxy", "订阅经代理更新", "关闭时先直连，失败后自动改走代理")}
         ${text("githubMirror", "GitHub 加速", "下载内核时使用的前缀，例如 https://ghfast.top/，留空直连", "")}
         ${row("数据目录", st.paths.userDir, html`<button class="btn sm" data-action="open-dir">${icon("folder", 14)}打开</button>`)}`
       )}
 
-      <p class="muted small about">Lily ${st.version} · 内核 mihomo（MetaCubeX）、sing-box（SagerNet）、Xray（XTLS）、Juicity · 防泄露规则来自本仓库 clash-verge-rev/</p>`
+      <p class="muted small about">Ondine ${st.version} · 内核 mihomo（MetaCubeX）、sing-box（SagerNet）、Xray（XTLS）、Juicity · 防泄露规则来自本仓库 clash-verge-rev/</p>`
     );
   }
 
@@ -262,7 +263,7 @@ export default function settings(root, ctx) {
       ctx.toast("已复制到剪贴板", "success");
     },
     grant: async () => {
-      if (ctx.state.platform === "win32" && !(await confirm("以管理员身份重启", "Lily 会关闭并以管理员身份重新打开，期间网络会短暂中断。", { ok: "重启" }))) return;
+      if (ctx.state.platform === "win32" && !(await confirm("以管理员身份重启", "Ondine 会关闭并以管理员身份重新打开，期间网络会短暂中断。", { ok: "重启" }))) return;
       const ok = await run("授权失败", () => ctx.invoke("grantTun"));
       if (ok) ctx.toast("授权成功，现在可以开启虚拟网卡", "success");
     },

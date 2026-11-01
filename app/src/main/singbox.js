@@ -520,7 +520,7 @@ export function toSingBox(clash, settings, ctx = {}) {
     supports: (feature) => (feature === "remove_client_subnet" ? newer("1.14.0") : true),
     ruleSet(tag) {
       needed.add(tag);
-      // 导出给别的设备用：规则集写成远程地址；在本机运行：用 Lily 预先下载好的本地文件
+      // 导出给别的设备用：规则集写成远程地址；在本机运行：用 Ondine 预先下载好的本地文件
       const entry = ctx.ruleSetUrl ? { type: "remote", tag, format: "binary", url: ctx.ruleSetUrl(tag) } : ruleSetPath(tag) ? { type: "local", tag, format: "binary", path: ruleSetPath(tag) } : null;
       if (!entry) return null;
       if (!ruleSets.some((r) => r.tag === tag)) ruleSets.push(entry);

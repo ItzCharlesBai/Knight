@@ -117,23 +117,23 @@ export function prepare(plan, previous = null) {
 }
 
 // sing-box 服务端配置
-export function serverConfig(dep, { certPath = "/etc/lily/cert.pem", keyPath = "/etc/lily/key.pem" } = {}) {
+export function serverConfig(dep, { certPath = "/etc/ondine/cert.pem", keyPath = "/etc/ondine/key.pem" } = {}) {
   const s = dep.secrets;
   const tls = (alpn) => Object.assign({ enabled: true, server_name: dep.tlsName, certificate_path: certPath, key_path: keyPath }, alpn ? { alpn } : {});
   const inbounds = dep.protocols.map(({ id, port }) => {
     const base = { tag: id, listen: "::", listen_port: port };
     if (id === "reality")
       return Object.assign({ type: "vless" }, base, {
-        users: [{ name: "lily", uuid: s.uuid, flow: "xtls-rprx-vision" }],
+        users: [{ name: "ondine", uuid: s.uuid, flow: "xtls-rprx-vision" }],
         tls: {
           enabled: true,
           server_name: dep.reality.target,
           reality: { enabled: true, handshake: { server: dep.reality.target, server_port: 443 }, private_key: dep.reality.privateKey, short_id: [dep.reality.shortId] },
         },
       });
-    if (id === "hysteria2") return Object.assign({ type: "hysteria2" }, base, { users: [{ name: "lily", password: s.hysteria2 }], masquerade: "https://" + dep.tlsName, tls: tls(["h3"]) });
-    if (id === "tuic") return Object.assign({ type: "tuic" }, base, { users: [{ name: "lily", uuid: s.uuid, password: s.tuic }], congestion_control: "bbr", tls: tls(["h3"]) });
-    if (id === "anytls") return Object.assign({ type: "anytls" }, base, { users: [{ name: "lily", password: s.anytls }], tls: tls() });
+    if (id === "hysteria2") return Object.assign({ type: "hysteria2" }, base, { users: [{ name: "ondine", password: s.hysteria2 }], masquerade: "https://" + dep.tlsName, tls: tls(["h3"]) });
+    if (id === "tuic") return Object.assign({ type: "tuic" }, base, { users: [{ name: "ondine", uuid: s.uuid, password: s.tuic }], congestion_control: "bbr", tls: tls(["h3"]) });
+    if (id === "anytls") return Object.assign({ type: "anytls" }, base, { users: [{ name: "ondine", password: s.anytls }], tls: tls() });
     return Object.assign({ type: "shadowsocks" }, base, { method: "2022-blake3-aes-128-gcm", password: s.ss2022 });
   });
   return {
@@ -172,11 +172,11 @@ export const shareLinks = (nodes) => nodes.map((n) => ({ name: n.name, type: n.t
 const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 // 脚本模板里不用 ${…} 形式的 shell 变量，占位符 __X__ 统一替换
 const fill = (text, values) => text.replace(/__([A-Z_]+)__/g, (m, k) => (k in values ? values[k] : m));
-const heredoc = (file, text) => `cat > ${file} <<'LILY_EOF'\n${String(text).replace(/\n?$/, "\n")}LILY_EOF`;
+const heredoc = (file, text) => `cat > ${file} <<'ONDINE_EOF'\n${String(text).replace(/\n?$/, "\n")}ONDINE_EOF`;
 
 const COMMON = String.raw`PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C
-say() { printf '@@LILY %s\n' "$*"; }
+say() { printf '@@ONDINE %s\n' "$*"; }
 die() { say error "$*"; exit 1; }
 [ "$(id -u)" = 0 ] || die "需要 root 权限"
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then INIT=systemd
@@ -184,15 +184,15 @@ elif command -v rc-service >/dev/null 2>&1; then INIT=openrc
 else INIT=none; fi`;
 
 const SYSTEMD_UNIT = `[Unit]
-Description=Lily proxy server (sing-box)
+Description=Ondine proxy server (sing-box)
 After=network-online.target nss-lookup.target
 Wants=network-online.target
 
 [Service]
-User=lily
+User=ondine
 Group=__GROUP__
-ExecStart=/usr/local/lib/lily/sing-box run -c /etc/lily/config.json -D /var/lib/lily --disable-color
-StateDirectory=lily
+ExecStart=/usr/local/lib/ondine/sing-box run -c /etc/ondine/config.json -D /var/lib/ondine --disable-color
+StateDirectory=ondine
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
@@ -203,23 +203,23 @@ LimitNOFILE=1048576
 [Install]
 WantedBy=multi-user.target`;
 
-// OpenRC（Alpine）：端口都在 1024 以上时用 lily 用户运行，否则只能用 root 绑定低端口
+// OpenRC（Alpine）：端口都在 1024 以上时用 ondine 用户运行，否则只能用 root 绑定低端口
 const openrcScript = (asUser) => `#!/sbin/openrc-run
-name="lily"
-description="Lily proxy server (sing-box)"
-command="/usr/local/lib/lily/sing-box"
-command_args="run -c /etc/lily/config.json -D /var/lib/lily --disable-color"
-${asUser ? 'command_user="lily"\n' : ""}command_background=true
-pidfile="/run/lily.pid"
-output_log="/var/log/lily.log"
-error_log="/var/log/lily.log"
+name="ondine"
+description="Ondine proxy server (sing-box)"
+command="/usr/local/lib/ondine/sing-box"
+command_args="run -c /etc/ondine/config.json -D /var/lib/ondine --disable-color"
+${asUser ? 'command_user="ondine"\n' : ""}command_background=true
+pidfile="/run/ondine.pid"
+output_log="/var/log/ondine.log"
+error_log="/var/log/ondine.log"
 depend() {
   need net
   after firewall
 }
 start_pre() {
-  checkpath -d -o lily /var/lib/lily
-  checkpath -f -o lily /var/log/lily.log
+  checkpath -d -o ondine /var/lib/ondine
+  checkpath -f -o ondine /var/log/ondine.log
 }`;
 
 // upload：{ path, sha256 } 服务器下载不了 sing-box 时，由客户端先传上去
@@ -245,8 +245,8 @@ say arch "$ARCH"
 
 say step "检查 sing-box"
 VER=__VER__
-BIN=/usr/local/lib/lily/sing-box
-mkdir -p /usr/local/lib/lily
+BIN=/usr/local/lib/ondine/sing-box
+mkdir -p /usr/local/lib/ondine
 if [ -x "$BIN" ] && "$BIN" version 2>/dev/null | head -n 1 | grep -qx "sing-box version $VER"; then
   say step "sing-box $VER 已经装好"
 else
@@ -270,25 +270,25 @@ else
 fi
 
 say step "写入配置"
-if ! id lily >/dev/null 2>&1; then
+if ! id ondine >/dev/null 2>&1; then
   if command -v useradd >/dev/null 2>&1; then
-    useradd --system --no-create-home --home-dir /var/lib/lily --shell /usr/sbin/nologin lily 2>/dev/null || useradd -r -M -s /sbin/nologin lily 2>/dev/null
+    useradd --system --no-create-home --home-dir /var/lib/ondine --shell /usr/sbin/nologin ondine 2>/dev/null || useradd -r -M -s /sbin/nologin ondine 2>/dev/null
   else
-    addgroup -S lily 2>/dev/null; adduser -S -D -H -G lily -s /sbin/nologin lily 2>/dev/null
+    addgroup -S ondine 2>/dev/null; adduser -S -D -H -G ondine -s /sbin/nologin ondine 2>/dev/null
   fi
 fi
-id lily >/dev/null 2>&1 || die "创建用户 lily 失败"
-GROUP=$(id -gn lily)
-mkdir -p /etc/lily /var/lib/lily
-chown root:"$GROUP" /etc/lily && chmod 750 /etc/lily
-chown lily:"$GROUP" /var/lib/lily
+id ondine >/dev/null 2>&1 || die "创建用户 ondine 失败"
+GROUP=$(id -gn ondine)
+mkdir -p /etc/ondine /var/lib/ondine
+chown root:"$GROUP" /etc/ondine && chmod 750 /etc/ondine
+chown ondine:"$GROUP" /var/lib/ondine
 umask 027
 __FILES__
-printf '%s\n' __PORTS__ > /etc/lily/ports
-chown root:"$GROUP" /etc/lily/*
-chmod 640 /etc/lily/*
-[ -f /etc/lily/cert.pem ] && chmod 644 /etc/lily/cert.pem
-OUT=$("$BIN" check -c /etc/lily/config.json.new 2>&1) || { rm -f /etc/lily/config.json.new; die "配置校验失败：$OUT"; }
+printf '%s\n' __PORTS__ > /etc/ondine/ports
+chown root:"$GROUP" /etc/ondine/*
+chmod 640 /etc/ondine/*
+[ -f /etc/ondine/cert.pem ] && chmod 644 /etc/ondine/cert.pem
+OUT=$("$BIN" check -c /etc/ondine/config.json.new 2>&1) || { rm -f /etc/ondine/config.json.new; die "配置校验失败：$OUT"; }
 
 say step "检查端口"
 # 端口被别的程序占着（sing-box 自己的不算，重新部署时旧服务还在运行）
@@ -303,9 +303,9 @@ listening() {
 }
 for P in __PORTS__; do
   N=$(echo "$P" | cut -d/ -f1); T=$(echo "$P" | cut -d/ -f2)
-  if listening "$N" "$T"; then rm -f /etc/lily/config.json.new; die "端口 $N（$T）已经被别的程序占用，换一个端口再试"; fi
+  if listening "$N" "$T"; then rm -f /etc/ondine/config.json.new; die "端口 $N（$T）已经被别的程序占用，换一个端口再试"; fi
 done
-mv -f /etc/lily/config.json.new /etc/lily/config.json
+mv -f /etc/ondine/config.json.new /etc/ondine/config.json
 
 if [ __FIREWALL__ = 1 ]; then
   say step "放行防火墙端口"
@@ -334,8 +334,8 @@ if [ __BBR__ = 1 ]; then
   if [ "$(cat /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null)" = bbr ]; then
     say bbr on
   elif grep -qw bbr /proc/sys/net/ipv4/tcp_available_congestion_control 2>/dev/null || modprobe tcp_bbr 2>/dev/null; then
-    printf 'net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr\n' > /etc/sysctl.d/99-lily-bbr.conf
-    sysctl -p /etc/sysctl.d/99-lily-bbr.conf >/dev/null 2>&1
+    printf 'net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr\n' > /etc/sysctl.d/99-ondine-bbr.conf
+    sysctl -p /etc/sysctl.d/99-ondine-bbr.conf >/dev/null 2>&1
     if [ "$(cat /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null)" = bbr ]; then say bbr on; else say warn "BBR 没能开启（容器类 VPS 通常不允许改内核参数）"; fi
   else
     say warn "这台服务器的内核不支持 BBR"
@@ -345,20 +345,20 @@ fi
 say step "启动服务"
 if [ "$INIT" = systemd ]; then
 __SYSTEMD__
-  sed -i "s/__GROUP__/$GROUP/" /etc/systemd/system/lily.service
-  systemctl daemon-reload && systemctl enable lily >/dev/null 2>&1 && systemctl restart lily || die "启动服务失败"
+  sed -i "s/__GROUP__/$GROUP/" /etc/systemd/system/ondine.service
+  systemctl daemon-reload && systemctl enable ondine >/dev/null 2>&1 && systemctl restart ondine || die "启动服务失败"
   sleep 2
-  systemctl is-active --quiet lily || die "服务没有跑起来：$(journalctl -u lily -n 8 --no-pager 2>/dev/null | tail -n 4)"
+  systemctl is-active --quiet ondine || die "服务没有跑起来：$(journalctl -u ondine -n 8 --no-pager 2>/dev/null | tail -n 4)"
 else
 __OPENRC__
-  chmod 755 /etc/init.d/lily
-  rc-update add lily default >/dev/null 2>&1
-  rc-service lily restart >/dev/null 2>&1 || die "启动服务失败：$(tail -n 4 /var/log/lily.log 2>/dev/null)"
+  chmod 755 /etc/init.d/ondine
+  rc-update add ondine default >/dev/null 2>&1
+  rc-service ondine restart >/dev/null 2>&1 || die "启动服务失败：$(tail -n 4 /var/log/ondine.log 2>/dev/null)"
 fi
 say done "$("$BIN" version 2>/dev/null | head -n 1)"
 `;
-  const files = [heredoc("/etc/lily/config.json.new", JSON.stringify(serverConfig(dep), null, 2))];
-  if (dep.cert) files.push(heredoc("/etc/lily/cert.pem", dep.cert.cert), heredoc("/etc/lily/key.pem", dep.cert.key));
+  const files = [heredoc("/etc/ondine/config.json.new", JSON.stringify(serverConfig(dep), null, 2))];
+  if (dep.cert) files.push(heredoc("/etc/ondine/cert.pem", dep.cert.cert), heredoc("/etc/ondine/key.pem", dep.cert.key));
   return fill(body, {
     VER: version,
     UPLOAD: upload ? q(upload.path) : "''",
@@ -368,8 +368,8 @@ say done "$("$BIN" version 2>/dev/null | head -n 1)"
     PORTS: ports.join(" "),
     FIREWALL: dep.firewall ? "1" : "0",
     BBR: dep.bbr ? "1" : "0",
-    SYSTEMD: heredoc("/etc/systemd/system/lily.service", SYSTEMD_UNIT),
-    OPENRC: heredoc("/etc/init.d/lily", openrcScript(!lowPort)),
+    SYSTEMD: heredoc("/etc/systemd/system/ondine.service", SYSTEMD_UNIT),
+    OPENRC: heredoc("/etc/init.d/ondine", openrcScript(!lowPort)),
   });
 }
 
@@ -377,13 +377,13 @@ say done "$("$BIN" version 2>/dev/null | head -n 1)"
 export const uninstallScript = () => String.raw`${COMMON}
 say step "停止服务"
 if [ "$INIT" = systemd ]; then
-  systemctl disable --now lily >/dev/null 2>&1; rm -f /etc/systemd/system/lily.service; systemctl daemon-reload
+  systemctl disable --now ondine >/dev/null 2>&1; rm -f /etc/systemd/system/ondine.service; systemctl daemon-reload
 elif [ "$INIT" = openrc ]; then
-  rc-service lily stop >/dev/null 2>&1; rc-update del lily default >/dev/null 2>&1; rm -f /etc/init.d/lily
+  rc-service ondine stop >/dev/null 2>&1; rc-update del ondine default >/dev/null 2>&1; rm -f /etc/init.d/ondine
 fi
-if [ -f /etc/lily/ports ]; then
+if [ -f /etc/ondine/ports ]; then
   say step "收回防火墙端口"
-  for P in $(cat /etc/lily/ports); do
+  for P in $(cat /etc/ondine/ports); do
     N=$(echo "$P" | cut -d/ -f1); T=$(echo "$P" | cut -d/ -f2)
     command -v ufw >/dev/null 2>&1 && ufw delete allow "$N/$T" >/dev/null 2>&1
     command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --permanent --remove-port="$N/$T" >/dev/null 2>&1 && firewall-cmd --reload >/dev/null 2>&1
@@ -391,8 +391,8 @@ if [ -f /etc/lily/ports ]; then
   done
 fi
 say step "删除文件"
-rm -rf /etc/lily /var/lib/lily /usr/local/lib/lily /var/log/lily.log
-userdel lily >/dev/null 2>&1 || deluser lily >/dev/null 2>&1
+rm -rf /etc/ondine /var/lib/ondine /usr/local/lib/ondine /var/log/ondine.log
+userdel ondine >/dev/null 2>&1 || deluser ondine >/dev/null 2>&1
 say done "已卸载"
 `;
 
@@ -401,10 +401,10 @@ export function serviceScript(action) {
   if (!["start", "stop", "restart", "status", "logs"].includes(action)) throw new Error("未知操作");
   const run =
     action === "logs"
-      ? `if [ "$INIT" = systemd ]; then journalctl -u lily -n 200 --no-pager -o short-iso 2>&1; else tail -n 200 /var/log/lily.log 2>&1; fi`
+      ? `if [ "$INIT" = systemd ]; then journalctl -u ondine -n 200 --no-pager -o short-iso 2>&1; else tail -n 200 /var/log/ondine.log 2>&1; fi`
       : action === "status"
-        ? `if [ "$INIT" = systemd ]; then printf 'active=%s\\nsince=%s\\n' "$(systemctl is-active lily 2>/dev/null)" "$(systemctl show -p ActiveEnterTimestamp --value lily 2>/dev/null)"; else rc-service lily status >/dev/null 2>&1 && echo active=active || echo active=inactive; fi`
-        : `if [ "$INIT" = systemd ]; then systemctl ${action} lily 2>&1 || die "操作失败"; else rc-service lily ${action} 2>&1 || die "操作失败"; fi
+        ? `if [ "$INIT" = systemd ]; then printf 'active=%s\\nsince=%s\\n' "$(systemctl is-active ondine 2>/dev/null)" "$(systemctl show -p ActiveEnterTimestamp --value ondine 2>/dev/null)"; else rc-service ondine status >/dev/null 2>&1 && echo active=active || echo active=inactive; fi`
+        : `if [ "$INIT" = systemd ]; then systemctl ${action} ondine 2>&1 || die "操作失败"; else rc-service ondine ${action} 2>&1 || die "操作失败"; fi
 say done ${action}`;
   return `${COMMON}\n${run}\n`;
 }
@@ -425,10 +425,10 @@ printf 'cc=%s\n' "$(cat /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null)"
 printf 'virt=%s\n' "$(systemd-detect-virt 2>/dev/null)"
 printf 'user=%s\n' "$(id -un)"
 printf 'uid=%s\n' "$(id -u)"
-if [ -x /usr/local/lib/lily/sing-box ]; then
-  printf 'singbox=%s\n' "$(/usr/local/lib/lily/sing-box version 2>/dev/null | head -n 1 | awk '{print $3}')"
-  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then printf 'service=%s\n' "$(systemctl is-active lily 2>/dev/null)"
-  elif command -v rc-service >/dev/null 2>&1; then rc-service lily status >/dev/null 2>&1 && echo service=active || echo service=inactive
+if [ -x /usr/local/lib/ondine/sing-box ]; then
+  printf 'singbox=%s\n' "$(/usr/local/lib/ondine/sing-box version 2>/dev/null | head -n 1 | awk '{print $3}')"
+  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then printf 'service=%s\n' "$(systemctl is-active ondine 2>/dev/null)"
+  elif command -v rc-service >/dev/null 2>&1; then rc-service ondine status >/dev/null 2>&1 && echo service=active || echo service=inactive
   fi
 fi
 `;
@@ -464,8 +464,8 @@ export function parseInfo(text) {
   };
 }
 
-// 脚本输出里的进度标记：@@LILY step 写入配置 / @@LILY error … / @@LILY done …
+// 脚本输出里的进度标记：@@ONDINE step 写入配置 / @@ONDINE error … / @@ONDINE done …
 export function parseMarker(line) {
-  const m = /^@@LILY (\S+)\s?(.*)$/.exec(String(line).trim());
+  const m = /^@@ONDINE (\S+)\s?(.*)$/.exec(String(line).trim());
   return m ? { kind: m[1], text: m[2] } : null;
 }

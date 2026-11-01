@@ -131,7 +131,7 @@ test("订阅响应头：流量信息与文件名", () => {
 });
 
 test("订阅管理：下载、更新、到期、坏内容不覆盖", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "lily-profiles-"));
+  const dir = mkdtempSync(join(tmpdir(), "ondine-profiles-"));
   let body = yaml.dump(SUB);
   const fetchFn = async () =>
     new Response(body, { headers: { "subscription-userinfo": "upload=1; download=2; total=10", "profile-update-interval": "12", "content-disposition": "attachment; filename=Air" } });
@@ -156,7 +156,7 @@ test("订阅管理：下载、更新、到期、坏内容不覆盖", async () =>
 });
 
 test("设置：缺字段补默认值，类型不对的丢弃，密钥保留", () => {
-  const dir = mkdtempSync(join(tmpdir(), "lily-store-"));
+  const dir = mkdtempSync(join(tmpdir(), "ondine-store-"));
   const file = join(dir, "settings.json");
   writeFileSync(file, JSON.stringify({ mixedPort: "bad", tun: { enable: true, stack: 1 }, leakGuard: { webrtc: "strict" } }));
   const store = new Store(file);
@@ -214,7 +214,7 @@ test("内核下载：发布文件名、zip 解压、版本比较", () => {
 // 有内核时，用真实 mihomo 校验生成的配置。GEO 数据优先用 GEODATA_DIR，其次用 resources/geo（npm run core 会下载）
 const bin = join(here, "..", "resources", "core", `${{ win32: "win", darwin: "mac", linux: "linux" }[process.platform]}-${process.arch}`, process.platform === "win32" ? "mihomo.exe" : "mihomo");
 test("mihomo -t 校验生成的配置", { skip: !existsSync(bin) && "没有内核（npm run core 下载）" }, () => {
-  const dir = mkdtempSync(join(tmpdir(), "lily-core-"));
+  const dir = mkdtempSync(join(tmpdir(), "ondine-core-"));
   const geo = process.env.GEODATA_DIR || join(here, "..", "resources", "geo");
   for (const f of ["geosite.dat", "geoip.dat", "country.mmdb"]) if (existsSync(join(geo, f))) copyFileSync(join(geo, f), join(dir, f));
   for (const [name, patch, profile] of [

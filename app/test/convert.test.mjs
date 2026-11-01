@@ -311,7 +311,7 @@ test("订阅转换页：多来源合并、模板、各种输出格式", () => {
 });
 
 test("组合订阅：多个来源合成一份，更新时重新拉取；转换选项随订阅保存", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "lily-combo-"));
+  const dir = mkdtempSync(join(tmpdir(), "ondine-combo-"));
   const bodies = { "https://a/1": yaml.dump({ proxies: nodes.slice(0, 2) }), "https://b/2": Buffer.from(["trojan://pw@x.example.com:443#TJ"].join("\n")).toString("base64") };
   const profiles = new Profiles(dir, async (url) => new Response(bodies[url], { headers: { "subscription-userinfo": "upload=1; download=2; total=3" } }));
   const local = profiles.import({ name: "local.yaml", text: yaml.dump({ proxies: [nodes[5]] }) });
@@ -350,7 +350,7 @@ test("内核下载：sing-box 的文件名与 tar.gz 解压（带动态库）", 
 // ---------------- 用真实内核校验 ----------------
 const mihomo = join(here, "..", "resources", "core", `${{ win32: "win", darwin: "mac", linux: "linux" }[process.platform]}-${process.arch}`, process.platform === "win32" ? "mihomo.exe" : "mihomo");
 test("mihomo -t：按地区 / 全面分流模板、搭配内核（mihomo 作 SOCKS 入口）", { skip: !existsSync(mihomo) && "没有内核（npm run core 下载）" }, () => {
-  const dir = mkdtempSync(join(tmpdir(), "lily-tpl-"));
+  const dir = mkdtempSync(join(tmpdir(), "ondine-tpl-"));
   const geo = process.env.GEODATA_DIR || join(here, "..", "resources", "geo");
   for (const f of ["geosite.dat", "geoip.dat", "country.mmdb"]) if (existsSync(join(geo, f))) copyFileSync(join(geo, f), join(dir, f));
   const check = (name, text) => {
@@ -369,7 +369,7 @@ test("mihomo -t：按地区 / 全面分流模板、搭配内核（mihomo 作 SOC
 
 const singbox = process.env.SINGBOX_BIN;
 test("sing-box check：转换出的配置", { skip: !singbox && "未设置 SINGBOX_BIN" }, () => {
-  const dir = mkdtempSync(join(tmpdir(), "lily-sb-"));
+  const dir = mkdtempSync(join(tmpdir(), "ondine-sb-"));
   const check = (name, text) => {
     const file = join(dir, name);
     writeFileSync(file, text);
@@ -383,7 +383,7 @@ test("sing-box check：转换出的配置", { skip: !singbox && "未设置 SINGB
 
 const xrayBin = process.env.XRAY_BIN;
 test("xray run -test：搭配用的 Xray 配置", { skip: !xrayBin && "未设置 XRAY_BIN" }, () => {
-  const dir = mkdtempSync(join(tmpdir(), "lily-xray-"));
+  const dir = mkdtempSync(join(tmpdir(), "ondine-xray-"));
   const nodes = parseSubscription(
     [
       "vless://0b0c1d2e-3f40-4a5b-8c6d-7e8f90a1b2c3@r.example.com:443?security=reality&sni=www.apple.com&fp=chrome&pbk=jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0&sid=ab&spx=%2F&flow=xtls-rprx-vision&type=tcp#R",

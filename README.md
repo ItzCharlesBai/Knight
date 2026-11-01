@@ -7,7 +7,7 @@
 | [`clash-verge-rev/script.js`](clash-verge-rev/script.js) | 订阅 → **全局扩展脚本** | 全部功能：防 DNS / WebRTC / IPv6 泄露，以及可选的优化 |
 | [`clash-verge-rev/merge.yaml`](clash-verge-rev/merge.yaml) | 订阅 → **全局扩展覆写配置** | 只有 DNS 和性能参数（不含规则） |
 
-> **新：Lily 客户端**　不想折腾 Verge？[`app/`](app/) 是一个桌面客户端（Windows / macOS / Linux）：
+> **新：Ondine 客户端**　不想折腾 Verge？[`app/`](app/) 是一个桌面客户端（Windows / macOS / Linux）：
 >
 > - 可选 mihomo、mihomo Alpha、sing-box、sing-box 测试版内核，Xray、Juicity 可以搭配运行它们跑不了的节点；
 > - 内置下面的全部防泄露功能（sing-box 下自动转换成等价设置）；
@@ -202,7 +202,7 @@ extraRules: [
 
 ## 八、开发与测试
 
-Lily 客户端的开发和打包见 [`app/README.md`](app/README.md)；它直接读取 `clash-verge-rev/` 下的这两个文件，改动后客户端里的行为同步变化。
+Ondine 客户端的开发和打包见 [`app/README.md`](app/README.md)；它直接读取 `clash-verge-rev/` 下的这两个文件，改动后客户端里的行为同步变化。
 
 `test/verify.mjs` 按 Verge 的方式模拟整个流程（订阅 → Merge → 脚本），对输出做断言。设置 `MIHOMO_BIN` 后，还会把生成的配置交给真实的 mihomo 内核跑 `mihomo -t` 做校验。
 

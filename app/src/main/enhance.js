@@ -124,7 +124,7 @@ function ensureDNS(config) {
 // singbox：{ providers, ruleSetPath, version } 转 sing-box 时用
 export function generate({ profile, settings, scriptSource = "", mergeSource = "", profileName = "", core = { id: "mihomo", kind: "clash" }, sidecars = [], singbox = {} }) {
   const logs = [];
-  const info = (message, level = "info") => logs.push({ source: "Lily", level, message });
+  const info = (message, level = "info") => logs.push({ source: "Ondine", level, message });
 
   // 当前内核跑不了的节点（或者指定交给 Xray 的 VLESS 节点）：交给搭配内核，没有可用的就去掉
   const available = settings.combine ? sidecars : [];

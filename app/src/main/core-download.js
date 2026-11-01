@@ -1,7 +1,7 @@
 // 内核登记表与下载：打包脚本（scripts/fetch-core.mjs）和应用内「下载 / 更新内核」共用
 import zlib from "node:zlib";
 
-// kind：clash = mihomo 系（读 Clash YAML，一套配置通用）；singbox = sing-box（配置由 Lily 自动转换）；
+// kind：clash = mihomo 系（读 Clash YAML，一套配置通用）；singbox = sing-box（配置由 Ondine 自动转换）；
 // xray = Xray-core、juicity = Juicity（没有 Clash 控制接口，只作为搭配内核运行部分节点）。sidecarOnly 的内核不能当主内核
 export const CORES = {
   mihomo: {
@@ -20,7 +20,7 @@ export const CORES = {
   },
   "sing-box": {
     label: "sing-box",
-    desc: "SagerNet 的另一套实现，支持 NaiveProxy；订阅和防泄露规则由 Lily 自动转换",
+    desc: "SagerNet 的另一套实现，支持 NaiveProxy；订阅和防泄露规则由 Ondine 自动转换",
     kind: "singbox",
     repo: "SagerNet/sing-box",
     tag: "",

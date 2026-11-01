@@ -376,7 +376,7 @@ export async function deploy(session, dep, { version, mirror = "", fetchTarball,
   if (needUpload && r.code === 3) {
     log({ kind: "step", text: "服务器下载不了 sing-box，改由本机下载后上传" });
     const data = await fetchTarball(version, arch);
-    const path = `/tmp/lily-${randomBytes(6).toString("hex")}.tar.gz`;
+    const path = `/tmp/ondine-${randomBytes(6).toString("hex")}.tar.gz`;
     log({ kind: "step", text: `上传 sing-box（${(data.length / 1048576).toFixed(1)} MB）` });
     const up = await exec(session.client, `umask 077; cat > ${path}`, { stdin: data, timeout: 10 * 60000 });
     if (up.code !== 0) throw new Error("上传失败：" + (up.err.trim() || "退出码 " + up.code));

@@ -1,6 +1,6 @@
 // 服务器（VPS 管理）：连接自己的 VPS，看运行状况；一键部署 sing-box 服务端，节点自动加进订阅；
 // 分享链接和二维码给手机；服务的启停、日志、卸载；简单的终端
-import { ago, bytes, confirm, delegate, html, icon, modal, patch, raw } from "../lib.js";
+import { ago, bytes, confirm, delegate, explained, html, icon, modal, patch, raw } from "../lib.js";
 import { qrModal } from "./convert.js";
 
 const SERVICE = { active: ["运行中", "ok"], inactive: ["已停止", ""], failed: ["出错", "bad"], activating: ["启动中", ""] };
@@ -27,7 +27,7 @@ export default function servers(root, ctx) {
 
   function render() {
     const s = ctx.state;
-    patch($("sv-notice"), s.vps.secure ? "" : html`<div class="notice">这台电脑的系统钥匙串不可用：服务器密码只在这次运行期间记住，重启 Lily 后要重新输入（私钥文件、SSH agent 不受影响）。</div>`);
+    patch($("sv-notice"), s.vps.secure ? "" : html`<div class="notice">这台电脑的系统钥匙串不可用：服务器密码只在这次运行期间记住，重启 Ondine 后要重新输入（私钥文件、SSH agent 不受影响）。</div>`);
     if (!s.servers.length) {
       return patch(
         $("sv-list"),
@@ -67,7 +67,7 @@ export default function servers(root, ctx) {
       ${dep
         ? html`<div class="deploy-line">${icon("rocket", 14)}<span>已部署 ${dep.protocols.map((p) => `${(ctx.state.vps.protocols.find((x) => x.id === p.id) || {}).label || p.id} :${p.port}`).join(" · ")}</span><span class="muted small">sing-box ${dep.version || ""} · ${ago(dep.at)}</span></div>`
         : ""}
-      ${sv.error ? html`<div class="notice bad small">${sv.error}</div>` : ""}
+      ${sv.error ? explained(sv.error) : ""}
       <div class="row-actions">
         <button class="btn sm" data-action="refresh" ${raw(sv.busy ? "disabled" : "")}>${icon("refresh", 14)}${i ? "刷新" : "连接"}</button>
         <button class="btn sm primary" data-action="deploy" ${raw(sv.busy ? "disabled" : "")}>${icon("rocket", 14)}${dep ? "重新部署" : "一键部署"}</button>
@@ -279,7 +279,7 @@ export default function servers(root, ctx) {
     modal({
       title: "节点 · " + sv.name,
       wide: true,
-      body: html`<p class="muted small">手机上的 Shadowrocket、v2rayNG、NekoBox、Clash Meta 等扫码就能添加；${profileId ? "这些节点已经在 Lily 的订阅里。" : "也可以点「加进订阅」在 Lily 里直接用。"}</p>
+      body: html`<p class="muted small">手机上的 Shadowrocket、v2rayNG、NekoBox、Clash Meta 等扫码就能添加；${profileId ? "这些节点已经在 Ondine 的订阅里。" : "也可以点「加进订阅」在 Ondine 里直接用。"}</p>
         <div class="node-qr-grid">${links.map(
           (l, i) => html`<figure class="node-qr">
             <svg viewBox="-2 -2 ${qrs[i].size + 4} ${qrs[i].size + 4}" shape-rendering="crispEdges"><rect x="-2" y="-2" width="${qrs[i].size + 4}" height="${qrs[i].size + 4}" class="qr-bg" /><path d="${qrs[i].d}" class="qr-ink" /></svg>
@@ -314,7 +314,7 @@ export default function servers(root, ctx) {
           <span class="spacer"></span>
           <button class="btn sm danger" data-svc="uninstall">${icon("trash", 14)}卸载</button>
         </div>
-        <textarea class="code" readonly spellcheck="false" placeholder="服务运行在 systemd（或 Alpine 的 OpenRC）下，名字是 lily；日志会显示在这里"></textarea>`,
+        <textarea class="code" readonly spellcheck="false" placeholder="服务运行在 systemd（或 Alpine 的 OpenRC）下，名字是 ondine；日志会显示在这里"></textarea>`,
       actions: [{ label: "关闭", kind: "primary" }],
       onMount: (mm) =>
         mm.el.addEventListener("click", async (e) => {
@@ -322,7 +322,7 @@ export default function servers(root, ctx) {
           if (!btn) return;
           const action = btn.dataset.svc;
           if (action === "uninstall") {
-            const ok = await confirm("卸载服务端", `从「${sv.name}」上删掉 Lily 部署的 sing-box、配置和服务，收回放行的端口。已经分发出去的节点会失效。`, { danger: true, ok: "卸载" });
+            const ok = await confirm("卸载服务端", `从「${sv.name}」上删掉 Ondine 部署的 sing-box、配置和服务，收回放行的端口。已经分发出去的节点会失效。`, { danger: true, ok: "卸载" });
             if (!ok) return;
           }
           btn.disabled = true;
@@ -343,7 +343,7 @@ export default function servers(root, ctx) {
       ["连接统计", "ss -s 2>/dev/null || netstat -s | head -n 30"],
       ["磁盘", "df -h"],
       ["内存", "free -h"],
-      ["服务状态", "systemctl status lily --no-pager 2>/dev/null || rc-service lily status"],
+      ["服务状态", "systemctl status ondine --no-pager 2>/dev/null || rc-service ondine status"],
     ];
     const m = modal({
       title: "终端 · " + sv.name,
@@ -400,7 +400,7 @@ export default function servers(root, ctx) {
     remove: async (el) => {
       const sv = find(el.closest("[data-id]").dataset.id);
       const withProfile = !!sv.profileId;
-      const ok = await confirm("删除服务器", `从 Lily 里删掉「${sv.name}」${withProfile ? "，连同它的订阅" : ""}？服务器上已经部署的服务不受影响（要停用请先在「服务」里卸载）。`, { danger: true, ok: "删除" });
+      const ok = await confirm("删除服务器", `从 Ondine 里删掉「${sv.name}」${withProfile ? "，连同它的订阅" : ""}？服务器上已经部署的服务不受影响（要停用请先在「服务」里卸载）。`, { danger: true, ok: "删除" });
       if (ok) run(() => ctx.invoke("vpsRemove", sv.id, { profile: withProfile }), "已删除");
     },
   });

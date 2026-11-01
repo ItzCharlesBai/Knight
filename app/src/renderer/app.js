@@ -1,5 +1,6 @@
 // 界面入口：导航、全局状态、实时流量与日志；各页面在 pages/ 下
 import { createApi } from "./api.js";
+import { createBurst, createScene } from "./fx.js";
 import { html, icon, patch, speed, toast } from "./lib.js";
 import home from "./pages/home.js";
 import proxies from "./pages/proxies.js";
@@ -31,7 +32,7 @@ const ctx = {
   memory: 0,
   logs: [], // 内核日志，最多 1000 条
   api: createApi(() => ctx.state && ctx.state.controller),
-  invoke: (method, ...args) => window.lily.invoke(method, ...args),
+  invoke: (method, ...args) => window.ondine.invoke(method, ...args),
   toast,
   navigate: (page, anchor) => go(page, anchor),
   // type："state"（参数 coreUp 表示内核刚启动）、"traffic"、"log"、"visible"（窗口重新显示）；返回取消订阅函数
@@ -81,13 +82,14 @@ function go(name, anchor) {
   renderNav();
   if (anchor) setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: "start" }), 50);
   try {
-    localStorage.setItem("lily.page", currentName);
+    localStorage.setItem("ondine.page", currentName);
   } catch {
     /* 存储不可用时忽略 */
   }
 }
 
-// 页头标题上方的小字：Nº 01 · Overview（像片头字幕的编号）
+// 页头像电影海报：一行演职员表式的小字（Nº III · ONDINE PRESENTS · SUBSCRIPTIONS），片名后面压一个大大的花体词
+const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
 function addKicker(root, index, english) {
   const h1 = root.querySelector(".page-head h1");
   if (!h1) return;
@@ -95,9 +97,13 @@ function addKicker(root, index, english) {
   block.className = "title-block";
   const kicker = document.createElement("div");
   kicker.className = "kicker";
-  kicker.textContent = `Nº ${String(index).padStart(2, "0")} · ${english}`;
+  kicker.textContent = `Nº ${ROMAN[index - 1] || index} · Ondine presents · ${english}`;
+  const word = document.createElement("div");
+  word.className = "poster-word";
+  word.setAttribute("aria-hidden", "true");
+  word.textContent = english;
   h1.replaceWith(block);
-  block.append(kicker, h1);
+  block.append(word, kicker, h1);
 }
 
 function renderTraffic() {
@@ -151,23 +157,58 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-window.lily.onState((state) => {
+window.ondine.onState((state) => {
   const wasRunning = ctx.coreRunning();
   ctx.state = state;
   applyTheme();
   renderTraffic();
   ctx.emit("state", !wasRunning && ctx.coreRunning());
 });
-window.lily.onNavigate((page) => go(page));
-window.lily.onToast(({ message, type }) => toast(message, type));
-window.lily.onVps((msg) => ctx.emit("vps", msg));
+window.ondine.onNavigate((page) => go(page));
+window.ondine.onToast(({ message, type }) => toast(message, type));
+window.ondine.onVps((msg) => ctx.emit("vps", msg));
 
-// 深浅色：跟随系统时交给 prefers-color-scheme，指定时直接写在根元素上
+// ---------------- 光影与粒子 ----------------
+const scene = createScene(document.getElementById("scene"));
+const burst = createBurst(document.getElementById("burst"));
+const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+let lastLook = "";
+// 天气写在根元素上；动态效果关掉、系统要求减少动画、窗口藏起来时都停下
 function applyTheme() {
-  const theme = ctx.state.settings.theme;
-  if (theme === "system") delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = theme;
+  const { theme, motion } = ctx.state.settings;
+  const moving = motion && !reduced.matches;
+  document.documentElement.dataset.theme = theme;
+  document.documentElement.classList.toggle("still", !moving);
+  burst.enabled = moving;
+  const look = theme + moving + document.hidden;
+  if (look === lastLook) return;
+  lastLook = look;
+  scene.setWeather(theme);
+  if (moving && !document.hidden) scene.start();
+  else scene.stop();
 }
+document.addEventListener("visibilitychange", () => ctx.state && applyTheme());
+// 点按钮、导航、节点时冒一小簇光点；开关打开时多一点
+document.addEventListener("pointerdown", (e) => {
+  const el = e.target.closest(".btn, .icon-btn, .nav-item, .segmented button, .chip, .node, .profile, .share-row button");
+  if (!el || el.disabled) return;
+  burst.burst(e.clientX, e.clientY, el.classList.contains("primary") ? "big" : "tap");
+});
+document.addEventListener("change", (e) => {
+  const sw = e.target.closest(".switch");
+  if (!sw || !e.target.checked) return;
+  const r = sw.getBoundingClientRect();
+  burst.burst(r.left + r.width * 0.75, r.top + r.height / 2, "on");
+});
+// 成功的提示冒光点，失败的轻轻一抖（样式里）再冒一点暗红的
+window.addEventListener("ondine:toast", (e) => {
+  const { el, type } = e.detail;
+  if (type !== "success" && type !== "error") return;
+  requestAnimationFrame(() => {
+    const r = el.getBoundingClientRect();
+    burst.burst(r.left + 14, r.top + r.height / 2, type);
+  });
+});
 
 ctx.state = await ctx.invoke("state");
 applyTheme();
@@ -175,7 +216,7 @@ renderTraffic();
 if (!document.hidden) startStreams();
 let start = "home";
 try {
-  start = localStorage.getItem("lily.page") || "home";
+  start = localStorage.getItem("ondine.page") || "home";
 } catch {
   /* 忽略 */
 }

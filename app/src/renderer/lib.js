@@ -1,4 +1,5 @@
 // 页面共用的小工具：安全的模板、格式化、图标、弹窗与提示
+import { explain } from "./explain.js";
 
 // ---------------- 模板：插值默认转义（节点名、规则都来自订阅，不能当 HTML 用）----------------
 class Raw {
@@ -145,14 +146,60 @@ export const icon = (name, size = 18) =>
   raw(`<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ""}</svg>`);
 
 // ---------------- 提示与弹窗 ----------------
+// 失败的提示带上解释：出了什么事、为什么、怎么办，原始信息折叠在「详情」里
 export function toast(message, type = "info") {
   const box = document.getElementById("toasts");
   const el = document.createElement("div");
   el.className = "toast " + type;
-  el.textContent = message;
+  const text = (tag, cls, s) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    n.textContent = s;
+    return n;
+  };
+  let life = type === "error" ? 14000 : 3000;
+  if (type === "error") {
+    const e = explain(message);
+    const head = document.createElement("div");
+    head.className = "toast-head";
+    head.append(text("b", "", e.title));
+    const close = text("button", "toast-x", "×");
+    close.title = "关闭";
+    head.append(close);
+    el.append(head, text("p", "toast-why", e.why));
+    if (e.fix.length) {
+      const ul = document.createElement("ul");
+      ul.className = "toast-fix";
+      e.fix.forEach((f) => ul.append(text("li", "", f)));
+      el.append(ul);
+    }
+    if (e.raw && e.raw !== e.title) {
+      const d = document.createElement("details");
+      d.append(text("summary", "", "详情"), text("code", "", e.raw));
+      d.addEventListener("toggle", () => d.open && (life = Infinity));
+      el.append(d);
+    }
+    close.addEventListener("click", () => leave());
+  } else {
+    el.textContent = message;
+  }
   box.appendChild(el);
-  setTimeout(() => el.classList.add("leave"), type === "error" ? 6000 : 2800);
-  setTimeout(() => el.remove(), type === "error" ? 6400 : 3200);
+  let timer = setTimeout(() => leave(), life);
+  // 鼠标停在上面时不消失
+  el.addEventListener("mouseenter", () => clearTimeout(timer));
+  el.addEventListener("mouseleave", () => life !== Infinity && (timer = setTimeout(() => leave(), 2500)));
+  function leave() {
+    clearTimeout(timer);
+    el.classList.add("leave");
+    setTimeout(() => el.remove(), 350);
+  }
+  window.dispatchEvent(new CustomEvent("ondine:toast", { detail: { el, type } }));
+}
+
+// 页面里的错误提示（比如「应用配置失败」）也带上解释
+export function explained(message) {
+  const e = explain(message);
+  return html`<div class="notice bad explained"><b>${e.title}</b><span>${e.why}</span>${e.fix.length ? html`<ul>${e.fix.map((f) => html`<li>${f}</li>`)}</ul>` : ""}${e.raw && e.raw !== e.title ? html`<details><summary>详情</summary><code>${e.raw}</code></details>` : ""}</div>`;
 }
 
 // actions: [{ label, kind: "primary" | "danger" | "", onClick(modal) → 返回 false 不关闭 }]

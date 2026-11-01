@@ -67,7 +67,8 @@ export const DEFAULTS = {
   autoLaunch: false,
   silentStart: false,
   closeToTray: true,
-  theme: "light", // 默认「夏日」浅色；也可以用「黄昏」深色或跟随系统
+  theme: "mist", // 窗外的天气：mist 晨雾（默认）| rain 细雨 | sun 晴光，都是浅色
+  motion: true, // 动态效果：光束、雾、微尘、细雨和操作时的光点
   githubMirror: "",
   updateViaProxy: false,
 };

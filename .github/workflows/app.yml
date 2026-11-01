@@ -1,6 +1,6 @@
-# Lily 桌面客户端：测试并打包 Windows / macOS / Linux 安装包
-# 手动运行（Actions → Lily 客户端 → Run workflow）或推送 v* 标签时触发；推送标签会自动发布 Release
-name: Lily 客户端
+# Ondine 桌面客户端：测试并打包 Windows / macOS / Linux 安装包
+# 手动运行（Actions → Ondine 客户端 → Run workflow）或推送 v* 标签时触发；推送标签会自动发布 Release
+name: Ondine 客户端
 
 on:
   workflow_dispatch:
@@ -57,7 +57,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false" # 没有签名证书时跳过签名
       - uses: actions/upload-artifact@v4
         with:
-          name: lily-${{ matrix.target }}
+          name: ondine-${{ matrix.target }}
           path: |
             app/dist/*.exe
             app/dist/*.dmg

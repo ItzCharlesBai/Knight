@@ -82,7 +82,7 @@ test("多订阅：生成 mihomo 和 sing-box 配置", () => {
 
 const mihomo = join(here, "..", "resources", "core", `${{ win32: "win", darwin: "mac", linux: "linux" }[process.platform]}-${process.arch}`, process.platform === "win32" ? "mihomo.exe" : "mihomo");
 test("mihomo -t：多订阅合成后的配置", { skip: !existsSync(mihomo) && "没有内核（npm run core 下载）" }, () => {
-  const dir = mkdtempSync(join(tmpdir(), "lily-stack-"));
+  const dir = mkdtempSync(join(tmpdir(), "ondine-stack-"));
   const geo = join(here, "..", "resources", "geo");
   for (const f of ["geosite.dat", "geoip.dat", "country.mmdb"]) if (existsSync(join(geo, f))) copyFileSync(join(geo, f), join(dir, f));
   const { config } = stackProfiles(SUB, [extras[0]]);
