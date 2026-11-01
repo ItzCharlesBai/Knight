@@ -47,6 +47,8 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   shortcutName: Ondine
+  # x64 和 arm64 各出一个安装包，不再打一个两种都装进去的大包
+  buildUniversalInstaller: false
   artifactName: Ondine-${version}-win-${arch}-setup.${ext}
 
 mac:
