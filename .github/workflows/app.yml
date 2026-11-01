@@ -109,7 +109,7 @@ jobs:
           sparse-checkout: .github/release-notes.md
           sparse-checkout-cone-mode: false
       - name: 发布说明
-        run: sed "s/{{tag}}/$TAG/g" .github/release-notes.md > "$RUNNER_TEMP/notes.md"
+        run: sed -e "s/{{tag}}/$TAG/g" -e "s/{{version}}/${TAG#v}/g" .github/release-notes.md > "$RUNNER_TEMP/notes.md"
         env:
           TAG: ${{ needs.version.outputs.tag }}
       - uses: actions/download-artifact@v4

@@ -1,11 +1,15 @@
-## 下载哪个
+## 下载
 
-| 系统 | 文件 |
-| --- | --- |
-| Windows 10 / 11 | `Ondine-…-win-x64-setup.exe`（ARM 电脑选 `win-arm64-setup.exe`） |
-| macOS · Apple 芯片 | `Ondine-…-mac-arm64.dmg` |
-| macOS · Intel | `Ondine-…-mac-x64.dmg` |
-| Linux | `Ondine-…-linux-x86_64.AppImage`；Debian / Ubuntu 也可以用 `linux-amd64.deb`（ARM 选带 `arm64` 的） |
+| 系统 | 直接下载 | 国内加速 |
+| --- | --- | --- |
+| Windows 10 / 11 | [win-x64-setup.exe](https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-win-x64-setup.exe) | [加速下载](https://ghfast.top/https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-win-x64-setup.exe) |
+| Windows · ARM | [win-arm64-setup.exe](https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-win-arm64-setup.exe) | [加速下载](https://ghfast.top/https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-win-arm64-setup.exe) |
+| macOS · Apple 芯片 | [mac-arm64.dmg](https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-mac-arm64.dmg) | [加速下载](https://ghfast.top/https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-mac-arm64.dmg) |
+| macOS · Intel | [mac-x64.dmg](https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-mac-x64.dmg) | [加速下载](https://ghfast.top/https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-mac-x64.dmg) |
+| Linux | [x86_64.AppImage](https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-linux-x86_64.AppImage) · [amd64.deb](https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-linux-amd64.deb) | [AppImage](https://ghfast.top/https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-linux-x86_64.AppImage) · [deb](https://ghfast.top/https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-linux-amd64.deb) |
+| Linux · ARM | [arm64.AppImage](https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-linux-arm64.AppImage) · [arm64.deb](https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-linux-arm64.deb) | [AppImage](https://ghfast.top/https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-linux-arm64.AppImage) · [deb](https://ghfast.top/https://github.com/ItzCharlesBai/Knight/releases/download/{{tag}}/Ondine-{{version}}-linux-arm64.deb) |
+
+国内直接下载慢、或者下到一半失败，就点「国内加速」。加速站是第三方的，下完可以核对一下文件的 sha256（下面文件列表里每个文件旁边都有）。
 
 安装包自带 mihomo 内核和 GEO 数据，打开后在「订阅」页粘贴订阅链接就能用。
 
