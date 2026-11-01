@@ -274,7 +274,7 @@ node scripts/fetch-core.mjs --core sing-box --out /tmp/sing-box
 SINGBOX_BIN=/tmp/sing-box/sing-box npm test
 ```
 
-GitHub Actions 的「Ondine 客户端」工作流会跑完整测试，包括 `mihomo -t`、`sing-box check` 和 `xray run -test`，然后打包三个平台的安装包；推送 `v*` 标签会自动发布 Release。本地打包：
+GitHub Actions 的「Ondine 客户端」工作流会跑完整测试，包括 `mihomo -t`、`sing-box check` 和 `xray run -test`。`package.json` 里的版本还没发布过时，推送后会打包三个平台的安装包并发布 Release（自动打上 `v<版本>` 标签），所以发新版只要改版本号再推送；推送 `v*` 标签也行。本地打包：
 
 ```bash
 npm run dist:win     # Windows x64 / arm64 安装包

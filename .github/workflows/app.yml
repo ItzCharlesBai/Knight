@@ -1,15 +1,47 @@
 # Ondine 桌面客户端：测试并打包 Windows / macOS / Linux 安装包
-# 手动运行（Actions → Ondine 客户端 → Run workflow）或推送 v* 标签时触发；推送标签会自动发布 Release
+# - 推送代码：先跑测试；app/package.json 里的版本还没发布过时，打包三个平台并发布 Release（自动打上 v<版本> 标签）
+#   所以发新版只要改 package.json 的 version 再推送；版本没变的推送只跑测试
+# - 推送 v* 标签：这个标签还没有 Release 时打包发布
+# - 手动运行（Actions → Ondine 客户端 → Run workflow）：只打包，安装包在这次运行的 Artifacts 里
 name: Ondine 客户端
 
 on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+    branches: ["**"]
+    paths: ["app/**", "clash-verge-rev/**", ".github/workflows/app.yml", ".github/release-notes.md"]
   pull_request:
     paths: ["app/**", "clash-verge-rev/**", ".github/workflows/app.yml"]
 
+# 同一分支连着推送时排队跑，不会把同一个版本发布两次
+concurrency:
+  group: ondine-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: app/package.json
+          sparse-checkout-cone-mode: false
+      - id: v
+        name: 这个版本发布过没有
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then tag="$GITHUB_REF_NAME"; else tag="v$(node -p 'require("./app/package.json").version')"; fi
+          release=false
+          if [ "$GITHUB_EVENT_NAME" = push ] && ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then release=true; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "$tag：release=$release"
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -29,8 +61,8 @@ jobs:
           SINGBOX_BIN="$RUNNER_TEMP/sing-box/sing-box" XRAY_BIN="$RUNNER_TEMP/xray/xray" npm test
 
   build:
-    needs: test
-    if: github.event_name != 'pull_request'
+    needs: [test, version]
+    if: github.event_name == 'workflow_dispatch' || needs.version.outputs.release == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -66,8 +98,8 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, version]
+    if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -77,14 +109,18 @@ jobs:
           sparse-checkout: .github/release-notes.md
           sparse-checkout-cone-mode: false
       - name: 发布说明
-        run: sed "s/{{tag}}/${GITHUB_REF_NAME}/g" .github/release-notes.md > "$RUNNER_TEMP/notes.md"
+        run: sed "s/{{tag}}/$TAG/g" .github/release-notes.md > "$RUNNER_TEMP/notes.md"
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
-          name: Ondine ${{ github.ref_name }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }} # 标签不存在时在这次提交上创建
+          name: Ondine ${{ needs.version.outputs.tag }}
           body_path: ${{ runner.temp }}/notes.md
           files: dist/*
           generate_release_notes: true
