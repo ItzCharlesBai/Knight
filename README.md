@@ -14,7 +14,7 @@
 > - 订阅导入时自动识别格式并转换（Clash、分享链接、sing-box、Surge、Loon、Quantumult X），多个订阅可以同时使用；
 > - 可以把订阅共享给手机，还能管理自己的 VPS、一键部署 sing-box 服务端。
 >
-> 详见 [`app/README.md`](app/README.md)。
+> 安装包在 [Releases](https://github.com/ItzCharlesBai/Knight/releases/latest) 下载，详见 [`app/README.md`](app/README.md)。
 
 **只装 `script.js` 就够了，推荐只用它。** 脚本会在订阅原有的 DNS 设置上叠加；Merge 只能整体替换，还没办法把规则插到最前面，所以 WebRTC 防护只能靠脚本。
 

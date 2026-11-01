@@ -30,12 +30,14 @@ extraResources:
     filter: ["script.js", "merge.yaml"]
 asar: true
 publish: null
+# 图标由 scripts/icons.mjs 生成：小尺寸的线条单独加粗，任务栏、Finder 列表里也看得清
 icon: resources/icons/icon.png
 protocols:
   - name: Clash 订阅
     schemes: [clash, mihomo, ondine]
 
 win:
+  icon: resources/icons/icon.ico
   target:
     - target: nsis
       arch: [x64, arm64]
@@ -51,8 +53,12 @@ mac:
   target:
     - target: dmg
       arch: [arm64, x64]
+  icon: build/icon.icns
   category: public.app-category.utilities
   artifactName: Ondine-${version}-mac-${arch}.${ext}
+  # 没有开发者证书：做 ad-hoc 签名，Apple 芯片的 Mac 才能打开（第一次需右键 → 打开）；ad-hoc 签名不能配 hardened runtime
+  identity: "-"
+  hardenedRuntime: false
   # 内核需要 setuid 才能开虚拟网卡，所以它放在用户目录运行，不在签名的 .app 里修改
 
 linux:
@@ -61,6 +67,9 @@ linux:
       arch: [x64, arm64]
     - target: deb
       arch: [x64, arm64]
+  icon: build/icons
+  # 窗口和 ondine.desktop 对上（Wayland 的 app_id），任务栏才显示小猫图标
+  syncDesktopName: true
   category: Network
   maintainer: Ondine
   synopsis: 多内核桌面代理客户端

@@ -15,9 +15,21 @@ Ondine 是一个桌面代理客户端，支持 Windows、macOS 和 Linux。主�
   - 动效：页面从雾里浮上来，点按钮、拨开关、提示出现时冒一小簇光点（有点像原神）；「设置 → 动态效果」可以关掉，系统要求减少动画时自动停。
   - 窗外的天气：晨雾（默认）、细雨、晴光（墙上有窗光和橄榄枝的影子），都是浅色。
 - **失败有解释**：操作失败时说清楚出了什么事、为什么、怎么办（订阅被拒、不是订阅内容、网络不通、端口被占用、内核校验失败、SSH 登录失败等），原始信息放在「详情」里。
-- **图标**：暂定一只猫的侧脸线描，还在定。
+- **图标**：一只侧身坐着的小猫，几乎一笔画成的淡金色线条，没有底色、没有边框；任务栏、托盘这些小尺寸单独加粗了线条，缩小了也看得清。
 - **内核**：自带 mihomo，其他内核在 设置 → 内核 里一键下载，随时切换。
 - **隐私**：订阅链接只在本机下载和转换，不会发给任何在线转换服务。
+
+## 下载安装
+
+到 [Releases](https://github.com/ItzCharlesBai/Knight/releases/latest) 下载对应的安装包：
+
+| 系统 | 文件 | 说明 |
+| --- | --- | --- |
+| Windows 10 / 11 | `Ondine-<版本>-win-x64-setup.exe`（ARM 电脑选 `arm64`） | 没有代码签名，SmartScreen 拦下时点「更多信息 → 仍要运行」 |
+| macOS 12 起 | `Ondine-<版本>-mac-arm64.dmg`（Apple 芯片）或 `mac-x64.dmg`（Intel） | 只做了 ad-hoc 签名、没有公证：第一次打开被拦时，到「系统设置 → 隐私与安全性」底部点「仍要打开」（较早的系统也可以右键 → 打开） |
+| Linux | `Ondine-<版本>-linux-x86_64.AppImage`，或 Debian / Ubuntu 用 `linux-amd64.deb`（ARM 选 `arm64`） | AppImage 先 `chmod +x` 再运行；deb 用 `sudo apt install ./文件名.deb` |
+
+安装包自带 mihomo 内核和 GEO 数据，打开就能导入订阅。
 
 ## 内核
 
@@ -266,13 +278,13 @@ GitHub Actions 的「Ondine 客户端」工作流会跑完整测试，包括 `mi
 
 ```bash
 npm run dist:win     # Windows x64 / arm64 安装包
-npm run dist:mac     # macOS arm64 / x64 dmg（未签名，首次打开需右键 → 打开）
+npm run dist:mac     # macOS arm64 / x64 dmg（ad-hoc 签名，没有公证）
 npm run dist:linux   # Linux AppImage / deb
 ```
 
 下载内核时需要代理的话，用 `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:7897 npm run core`，或者加上 `--mirror https://ghfast.top/` 走 GitHub 加速。
 
-图标和背景素材由脚本生成（需要 playwright）：`node scripts/icons.mjs`、`node scripts/art.mjs`。
+图标和背景素材由脚本生成（需要 playwright）：`node scripts/icons.mjs`（应用图标、Windows 的 ico、macOS 的 icns、Linux 各尺寸和托盘图标）、`node scripts/art.mjs`。
 
 应用以前叫 Knight、Lily、Chelle：第一次以 Ondine 启动时，会把最近用过的那个的设置、订阅、服务器和内核自动搬过来。
 
@@ -304,5 +316,6 @@ app/
 ├─ src/renderer/      界面（无框架、无构建步骤）；fx.js 是光影和粒子动画，explain.js 是失败原因的解释；fonts/ 是打包的字体（SIL OFL 1.1），art/ 是窗光、叶影和雨滴素材
 ├─ src/preload.cjs
 ├─ scripts/           下载内核、生成图标（icons.mjs）和背景素材（art.mjs）
+├─ build/             只在打包时用的图标（macOS icns、Linux 各尺寸）
 └─ test/              单元测试（含用本机 SSH 服务器测试连接、mihomo -t 校验）
 ```

@@ -908,7 +908,7 @@ function main() {
       minHeight: 600,
       show: false,
       title: "Ondine",
-      icon: join(resourcesDir, "icons", "icon.png"),
+      icon: join(resourcesDir, "icons", process.platform === "win32" ? "icon.ico" : "icon.png"),
       autoHideMenuBar: true,
       backgroundColor: settings().theme === "rain" ? "#e4e2da" : "#ebe6da",
       webPreferences: { preload: join(here, "..", "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },

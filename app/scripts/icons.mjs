@@ -1,70 +1,142 @@
-// 图标：一只猫的侧脸，几笔橄榄色的线勾出来，里面一层淡淡的黄色，往脖子下面慢慢淡掉；没有底色，没有边框，像 Clash 系的图标一样简单。
-// 托盘用同一个侧脸的实心剪影。生成 resources/icons/ 下的 PNG（需要本机装有 playwright）：node scripts/icons.mjs
-import { writeFileSync } from "node:fs";
+// 图标：一只侧身坐着的小猫，几乎一笔画出来，尾巴卷在身后；淡淡的金色线条，没有底色，没有边框。
+// 小尺寸（任务栏、托盘、Finder 列表）按尺寸加粗线条、去掉胡须，像字体的光学尺寸，缩小了也看得清。
+// 生成（需要本机装有 playwright）：node scripts/icons.mjs
+//   resources/icons/  运行时用：icon.svg、icon.png、icon.ico（Windows 窗口、exe 和安装包）、托盘图标（带 @1.5x / @2x）
+//   build/            只在打包时用：icon.icns（macOS）、icons/<n>x<n>.png（Linux）
+import { mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
-const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "resources", "icons");
-const OLIVE = "#6a7044";
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const icons = join(root, "resources", "icons");
+const build = join(root, "build");
+const GOLD = "#c9a65f"; // 淡金，不扎眼
+const GREY = "#9a9a9a";
 
-// 侧脸朝左：后颈 → 后脑 → 耳朵 → 额头 → 鼻梁 → 鼻尖是一笔；鼻尖 → 嘴 → 下巴 → 喉咙 → 胸口是一笔
-const BACK = "M344 396 C340 356 328 314 314 286 C304 264 300 244 300 222 C300 196 288 176 266 164 L234 84 C226 108 216 134 204 158 C186 168 168 184 160 198 C155 206 152 214 146 222 C140 230 134 236 130 240";
-const FRONT = "M130 240 C132 248 138 252 146 252 C148 258 150 262 148 268 C160 282 178 292 198 300 C214 314 222 340 226 368 C228 378 228 388 228 396";
-const FAR_EAR = "M198 160 C200 136 204 112 208 92 C214 108 220 122 226 134";
-const HEAD = "M228 396 C228 388 228 378 226 368 C222 340 214 314 198 300 C178 292 160 282 148 268 C150 262 148 258 146 252 C138 252 132 248 130 240 C134 236 140 230 146 222 C152 214 155 206 160 198 C168 184 186 168 204 158 C216 134 226 108 234 84 L266 164 C288 176 300 196 300 222 C300 244 304 264 314 286 C328 314 340 356 344 396 Z";
+// 朝左坐着：背 → 后脑 → 耳朵 → 头顶 → 另一只耳朵 → 额头 → 鼻子 → 下巴 → 胸口 → 前爪 → 地面 → 后腿是一笔
+const BODY = "M374 432 C394 420 402 392 396 362 C388 320 354 292 320 276 C304 268 293 256 291 238 C293 214 289 192 277 176 L287 118 L244 145 C230 141 214 141 200 145 L168 114 L168 170 C154 186 146 206 148 226 C143 231 141 238 144 244 C149 251 158 254 166 254 C168 268 174 279 184 287 C176 316 174 352 179 388 C181 404 182 418 181 428 C176 430 172 433 172 437 L374 437";
+const LEG = "M234 436 C229 404 230 374 238 346";
+const TAIL = "M392 330 C420 300 418 252 392 238 C376 230 364 242 372 254";
+const WHISKERS = "M152 240 L120 234 M154 248 L124 256";
 
-const ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="46 58 340 340">
-<defs>
-  <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0.62" stop-color="#fff"/><stop offset="0.95" stop-color="#fff" stop-opacity="0"/></linearGradient>
-  <mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512"><rect x="0" y="60" width="512" height="340" fill="url(#fade)"/></mask>
-  <filter id="soft" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="2.5"/></filter>
-</defs>
-<g mask="url(#m)">
-  <path d="${HEAD}" fill="#f3e3a3" fill-opacity="0.75" transform="translate(6 5)" filter="url(#soft)"/>
-  <g fill="none" stroke="${OLIVE}" stroke-linecap="round" stroke-linejoin="round">
-    <path d="${FAR_EAR}" stroke-width="5" stroke-opacity="0.55"/>
-    <path d="${BACK}" stroke-width="7.5"/>
-    <path d="${FRONT}" stroke-width="7.5"/>
-  </g>
-</g>
-<g fill="none" stroke="${OLIVE}" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M236 108 C244 126 248 146 246 162" stroke-width="3.5" stroke-opacity="0.6"/>
-  <path d="M160 210 C168 200 182 196 194 200 C186 210 172 214 160 210 Z" stroke-width="4"/>
-  <path d="M174 204 C172 207 172 210 174 212" stroke-width="5.5"/>
-  <path d="M129 236 L139 233 L136 242 Z" fill="${OLIVE}" stroke-width="2.5"/>
-  <path d="M150 250 C120 238 92 234 60 236 M152 256 C122 254 94 258 64 270 M154 262 C130 268 108 282 92 300" stroke-width="2.2" stroke-opacity="0.7"/>
-  <path d="M196 232 C206 240 212 250 214 262" stroke-width="3" stroke-opacity="0.45"/>
-</g>
-</svg>
+export const kitten = (color, width, { whiskers = true, size } = {}) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="96 100 352 352"${size ? ` width="${size}" height="${size}"` : ""}>
+<g fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">
+<path d="${BODY}"/><path d="${LEG}"/><path d="${TAIL}"/>${whiskers ? `<path d="${WHISKERS}" stroke-width="${width * 0.5}"/>` : ""}
+</g><circle cx="189" cy="214" r="${Math.max(7, width * 0.58)}" fill="${color}"/></svg>
 `;
 
-// 托盘：侧脸的实心剪影（只要头和一点脖子），眼睛镂空。彩色版淡黄填充 + 橄榄描边，深浅任务栏都看得清；macOS 用黑色模板图
-const tray = (fill, stroke) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="112 74 216 216">
-<defs><clipPath id="c"><rect x="0" y="0" width="512" height="300"/></clipPath>
-<mask id="e"><rect x="0" y="0" width="512" height="512" fill="#fff"/><path d="M160 210 C168 200 182 196 194 200 C186 210 172 214 160 210 Z" fill="#000"/></mask></defs>
-<g clip-path="url(#c)" mask="url(#e)"><path d="${HEAD}" fill="${fill}" ${stroke ? `stroke="${stroke}" stroke-width="14" stroke-linejoin="round" paint-order="stroke"` : ""}/></g></svg>`;
+// 线宽（viewBox 352 里的单位）：大图 12；小图保证屏幕上约 1.6 像素以上
+const strokeFor = (size) => Math.max(12, ((1.25 + size * 0.022) * 352) / size);
+const appIcon = (size, color = GOLD) => kitten(color, strokeFor(size), { whiskers: size >= 48, size });
 
-const outputs = [
-  ["icon.png", ICON, 1024],
-  ["tray.png", tray("#f3e3a3", OLIVE), 32],
-  ["tray-off.png", tray("#dedbd2", "#7d8084"), 32],
-  ["trayTemplate.png", tray("#000"), 22],
-  ["trayTemplate@2x.png", tray("#000"), 44],
-  ["trayOffTemplate.png", tray("rgba(0,0,0,0.45)"), 22],
-  ["trayOffTemplate@2x.png", tray("rgba(0,0,0,0.45)"), 44],
-];
-
-writeFileSync(join(dir, "icon.svg"), ICON);
 const browser = await chromium.launch();
 const page = await browser.newPage();
-for (const [name, markup, size] of outputs) {
-  await page.setViewportSize({ width: size, height: size });
-  await page.setContent(`<html><body style="margin:0;background:transparent">${markup.replace("<svg ", `<svg width="${size}" height="${size}" `)}</body></html>`);
-  await page.waitForTimeout(150);
-  await page.locator("svg").screenshot({ path: join(dir, name), omitBackground: true });
-  console.log(name);
+// 用 canvas 把 SVG 画成 size×size：返回 PNG 和 RGBA 像素
+const render = async (svg, size) => {
+  const { png, rgba } = await page.evaluate(
+    async ({ svg, size }) => {
+      const img = new Image();
+      img.src = "data:image/svg+xml;base64," + btoa(svg);
+      await img.decode();
+      const c = document.createElement("canvas");
+      c.width = c.height = size;
+      const g = c.getContext("2d");
+      g.drawImage(img, 0, 0, size, size);
+      return { png: c.toDataURL("image/png").split(",")[1], rgba: Array.from(g.getImageData(0, 0, size, size).data) };
+    },
+    { svg: svg.replace(/ width="\d+" height="\d+"/, "").replace("<svg ", `<svg width="${size}" height="${size}" `), size }
+  );
+  return { png: Buffer.from(png, "base64"), rgba };
+};
+
+// ICO：256 用 PNG，其余用 32 位 BMP（带 AND 掩码），老工具和 NSIS 都认
+const dib = (size, rgba) => {
+  const head = Buffer.alloc(40);
+  head.writeUInt32LE(40, 0);
+  head.writeInt32LE(size, 4);
+  head.writeInt32LE(size * 2, 8);
+  head.writeUInt16LE(1, 12);
+  head.writeUInt16LE(32, 14);
+  const xor = Buffer.alloc(size * size * 4);
+  const rowBytes = Math.ceil(size / 32) * 4;
+  const and = Buffer.alloc(rowBytes * size);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const s = ((size - 1 - y) * size + x) * 4; // BMP 自下而上
+      const d = (y * size + x) * 4;
+      xor[d] = rgba[s + 2];
+      xor[d + 1] = rgba[s + 1];
+      xor[d + 2] = rgba[s];
+      xor[d + 3] = rgba[s + 3];
+      if (rgba[s + 3] === 0) and[y * rowBytes + (x >> 3)] |= 0x80 >> (x & 7);
+    }
+  head.writeUInt32LE(xor.length + and.length, 20);
+  return Buffer.concat([head, xor, and]);
+};
+const ico = (entries) => {
+  const head = Buffer.alloc(6 + entries.length * 16);
+  head.writeUInt16LE(1, 2);
+  head.writeUInt16LE(entries.length, 4);
+  let offset = head.length;
+  entries.forEach(([size, data], i) => {
+    const o = 6 + i * 16;
+    head[o] = head[o + 1] = size >= 256 ? 0 : size;
+    head.writeUInt16LE(1, o + 4);
+    head.writeUInt16LE(32, o + 6);
+    head.writeUInt32LE(data.length, o + 8);
+    head.writeUInt32LE(offset, o + 12);
+    offset += data.length;
+  });
+  return Buffer.concat([head, ...entries.map((e) => e[1])]);
+};
+// ICNS：全部用 PNG
+const icns = (entries) => {
+  const parts = entries.map(([type, data]) => {
+    const h = Buffer.alloc(8);
+    h.write(type, 0, "latin1");
+    h.writeUInt32BE(data.length + 8, 4);
+    return Buffer.concat([h, data]);
+  });
+  const h = Buffer.alloc(8);
+  h.write("icns", 0, "latin1");
+  h.writeUInt32BE(8 + parts.reduce((n, p) => n + p.length, 0), 4);
+  return Buffer.concat([h, ...parts]);
+};
+
+mkdirSync(join(build, "icons"), { recursive: true });
+writeFileSync(join(icons, "icon.svg"), kitten(GOLD, 12));
+const cache = new Map();
+const app = async (size) => (cache.has(size) || cache.set(size, await render(appIcon(size), size)), cache.get(size));
+
+writeFileSync(join(icons, "icon.png"), (await app(1024)).png);
+const icoEntries = [];
+for (const size of [16, 20, 24, 32, 40, 48, 64, 128, 256]) {
+  const r = await app(size);
+  icoEntries.push([size, size >= 256 ? r.png : dib(size, r.rgba)]);
 }
+writeFileSync(join(icons, "icon.ico"), ico(icoEntries));
+const icnsTypes = [["icp4", 16], ["icp5", 32], ["icp6", 64], ["ic07", 128], ["ic08", 256], ["ic09", 512], ["ic10", 1024], ["ic11", 32], ["ic12", 64], ["ic13", 256], ["ic14", 512]];
+const icnsEntries = [];
+for (const [type, size] of icnsTypes) icnsEntries.push([type, (await app(size)).png]);
+writeFileSync(join(build, "icon.icns"), icns(icnsEntries));
+for (const size of [16, 24, 32, 48, 64, 128, 256, 512]) writeFileSync(join(build, "icons", `${size}x${size}.png`), (await app(size)).png);
+
+// 托盘：Windows / Linux 用彩色（16 / 24 / 32 像素），macOS 用黑色模板图（菜单栏自动变色）
+const tray = [
+  ["tray.png", GOLD, 38, 16],
+  ["tray@1.5x.png", GOLD, 30, 24],
+  ["tray@2x.png", GOLD, 26, 32],
+  ["tray-off.png", GREY, 38, 16],
+  ["tray-off@1.5x.png", GREY, 30, 24],
+  ["tray-off@2x.png", GREY, 26, 32],
+  ["trayTemplate.png", "#000", 30, 22],
+  ["trayTemplate@2x.png", "#000", 26, 44],
+  ["trayOffTemplate.png", "rgba(0,0,0,0.45)", 30, 22],
+  ["trayOffTemplate@2x.png", "rgba(0,0,0,0.45)", 26, 44],
+];
+for (const [name, color, width, size] of tray) writeFileSync(join(icons, name), (await render(kitten(color, width, { whiskers: size >= 44 }), size)).png);
 await browser.close();
+console.log("icons ok");
