@@ -11,14 +11,14 @@ const SORTS = [
 
 const store = (key, fallback) => {
   try {
-    return JSON.parse(localStorage.getItem("knight.proxies." + key)) ?? fallback;
+    return JSON.parse(localStorage.getItem("lily.proxies." + key)) ?? fallback;
   } catch {
     return fallback;
   }
 };
 const save = (key, value) => {
   try {
-    localStorage.setItem("knight.proxies." + key, JSON.stringify(value));
+    localStorage.setItem("lily.proxies." + key, JSON.stringify(value));
   } catch {
     /* 忽略 */
   }

@@ -64,7 +64,7 @@ export default function settings(root, ctx) {
             <button class="btn sm" data-action="install-core" data-id="${c.id}" ${raw(c.downloading ? "disabled" : "")}>${icon(c.installed ? "refresh" : "down", 14)}${c.downloading ? "下载中…" : c.installed ? "更新" : "下载"}</button>
           </div>`;
         })}
-        ${sw("combine", "搭配使用", "当前内核不支持的节点交给另一个已下载的内核运行：mihomo 下的 NaiveProxy 交给 sing-box，sing-box 下的 SSR、Snell、XHTTP 交给 mihomo 或 Xray")}
+        ${sw("combine", "搭配使用", "当前内核不支持的节点交给另一个已下载的内核运行：mihomo 下的 NaiveProxy 交给 sing-box；sing-box 下的 SSR、Snell、Mieru、XHTTP 交给 mihomo 或 Xray；Juicity 节点交给 Juicity")}
         ${s.combine && st.cores.some((c) => c.id === "xray" && c.installed)
           ? select("xrayFor", "交给 Xray 的节点", "mihomo 不再兼容 Xray v26.7.11 以后服务端的 REALITY；连不上时把 REALITY 或全部 VLESS 节点交给 Xray", [
               ["off", "不指定（只在主内核跑不了时才交给 Xray）"],
@@ -73,7 +73,6 @@ export default function settings(root, ctx) {
             ])
           : ""}
         ${s.combine ? number("sidecarPort", "搭配端口", "搭配内核在本机开的 SOCKS 入口从这个端口起依次使用", 1024, 65000) : ""}
-        ${st.core.id === "mihomo-smart" ? sw("smartGroups", "Smart 分组", "把订阅里的自动选择（url-test）分组换成 Smart 分组") : ""}
         ${row(
           "运行状态",
           st.core.installed
@@ -90,7 +89,7 @@ export default function settings(root, ctx) {
         )}
         ${row("内核输出", "启动失败时查看", html`<button class="btn sm" data-action="core-log">${icon("terminal", 14)}查看</button>`)}`,
         html`<p class="muted small section-note">${st.core.kind === "singbox"
-          ? "sing-box 读不了 Clash 配置：订阅、分组、规则和防泄露设置由 Knight 自动转换，修改设置后会重启 sing-box。"
+          ? "sing-box 读不了 Clash 配置：订阅、分组、规则和防泄露设置由 Lily 自动转换，修改设置后会重启 sing-box。"
           : "可以同时下载几个内核，随时切换，订阅和设置不用重新导入。"}</p>`
       )}
 
@@ -181,7 +180,7 @@ export default function settings(root, ctx) {
             ${sw("useMerge", "同时启用 merge.yaml", "一般不需要，script.js 已包含全部功能")}
           </details>`
           : ""}`,
-        html`<p class="muted small section-note">参数说明见仓库 README 第六节。${st.core.kind === "singbox" ? "sing-box 下同样生效（由 Knight 转换成等价的规则和 DNS），修改后会重启内核。" : "修改后会重新生成配置并热重载，不会断开内核。"}</p>`
+        html`<p class="muted small section-note">参数说明见仓库 README 第六节。${st.core.kind === "singbox" ? "sing-box 下同样生效（由 Lily 转换成等价的规则和 DNS），修改后会重启内核。" : "修改后会重新生成配置并热重载，不会断开内核。"}</p>`
       )}
 
       ${section(
@@ -211,8 +210,8 @@ export default function settings(root, ctx) {
         ${sw("silentStart", "静默启动", "启动时不打开窗口，只在托盘显示")}
         ${sw("closeToTray", "关闭窗口时留在托盘", "关闭后内核继续运行；从托盘菜单退出")}
         ${select("theme", "外观", "", [
-          ["dark", "夜空（默认）"],
-          ["light", "月面印刷版"],
+          ["light", "夏日（默认）"],
+          ["dark", "黄昏"],
           ["system", "跟随系统"],
         ])}
         ${sw("updateViaProxy", "订阅经代理更新", "关闭时先直连，失败后自动改走代理")}
@@ -220,7 +219,7 @@ export default function settings(root, ctx) {
         ${row("数据目录", st.paths.userDir, html`<button class="btn sm" data-action="open-dir">${icon("folder", 14)}打开</button>`)}`
       )}
 
-      <p class="muted small about">Knight ${st.version} · 内核 mihomo（MetaCubeX）与 sing-box（SagerNet）· 防泄露规则来自本仓库 clash-verge-rev/</p>`
+      <p class="muted small about">Lily ${st.version} · 内核 mihomo（MetaCubeX）、sing-box（SagerNet）、Xray（XTLS）、Juicity · 防泄露规则来自本仓库 clash-verge-rev/</p>`
     );
   }
 
@@ -263,7 +262,7 @@ export default function settings(root, ctx) {
       ctx.toast("已复制到剪贴板", "success");
     },
     grant: async () => {
-      if (ctx.state.platform === "win32" && !(await confirm("以管理员身份重启", "Knight 会关闭并以管理员身份重新打开，期间网络会短暂中断。", { ok: "重启" }))) return;
+      if (ctx.state.platform === "win32" && !(await confirm("以管理员身份重启", "Lily 会关闭并以管理员身份重新打开，期间网络会短暂中断。", { ok: "重启" }))) return;
       const ok = await run("授权失败", () => ctx.invoke("grantTun"));
       if (ok) ctx.toast("授权成功，现在可以开启虚拟网卡", "success");
     },

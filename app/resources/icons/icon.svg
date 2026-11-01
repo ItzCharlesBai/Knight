@@ -1,26 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512">
-  <!-- 绕月任务海报：深空、月球、地球边缘的光，骑士剪影立在地平线上，一条自由返回轨道 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <radialGradient id="sky" cx="70%" cy="20%" r="95%"><stop offset="0" stop-color="#16295a"/><stop offset=".55" stop-color="#0a1229"/><stop offset="1" stop-color="#04060b"/></radialGradient>
-    <radialGradient id="earth" cx="50%" cy="0%" r="70%"><stop offset="0" stop-color="#2a63c4"/><stop offset=".18" stop-color="#0f2c63"/><stop offset=".5" stop-color="#060c1c"/></radialGradient>
-    <radialGradient id="flare" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#ffe3c2"/><stop offset=".3" stop-color="#ff9a52" stop-opacity=".7"/><stop offset="1" stop-color="#ff7a3d" stop-opacity="0"/></radialGradient>
-    <clipPath id="tile"><rect x="24" y="24" width="464" height="464" rx="112"/></clipPath>
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="5"/></filter>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#fdf3e4"/>
+      <stop offset="0.6" stop-color="#f8d9bd"/>
+      <stop offset="1" stop-color="#f0a888"/>
+    </linearGradient>
+    <clipPath id="sq"><rect x="16" y="16" width="480" height="480" rx="112"/></clipPath>
   </defs>
-  <g clip-path="url(#tile)">
-    <rect x="24" y="24" width="464" height="464" fill="url(#sky)"/>
-    <g fill="#fff"><circle cx="92" cy="96" r="2"/><circle cx="150" cy="64" r="1.3" opacity=".7"/><circle cx="70" cy="190" r="1.4" opacity=".6"/><circle cx="196" cy="128" r="1.1" opacity=".5"/><circle cx="440" cy="420" r="1.4" opacity=".5"/><circle cx="120" cy="300" r="1" opacity=".5"/></g>
-    <image href="MOON" x="98" y="52" width="316" height="316"/>
-    <path d="M40 360 C 150 330, 330 196, 440 168 C 494 154, 500 200, 452 232 C 410 258, 360 252, 350 214" fill="none" stroke="#ff7a3d" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 13"/>
-    <circle cx="350" cy="214" r="6" fill="#ffb46b"/>
-    <circle cx="256" cy="980" r="560" fill="url(#earth)"/>
-    <circle cx="256" cy="980" r="560" fill="none" stroke="#7fbcff" stroke-width="3" opacity=".9"/>
-    <circle cx="256" cy="980" r="560" fill="none" stroke="#5aa9ff" stroke-width="16" opacity=".35" filter="url(#glow)"/>
-    <ellipse cx="350" cy="424" rx="120" ry="16" fill="url(#flare)"/>
-    <g transform="translate(34 58) scale(.88)">
-      <path d="M196 388 C206 336 222 306 240 288 C214 292 186 300 166 296 C146 292 132 276 136 256 C140 236 162 218 190 206 C210 176 222 150 230 120 C238 132 246 144 254 150 C304 150 352 190 362 252 C370 306 362 352 352 388 Z" fill="#05070c"/>
-      <path d="M254 150 C304 150 352 190 362 252 C370 306 362 352 352 388" fill="none" stroke="#ffb46b" stroke-width="3" stroke-opacity=".55"/>
-      <circle cx="198" cy="222" r="7" fill="#ffb46b" opacity=".9"/>
-    </g>
+  <g clip-path="url(#sq)">
+    <rect width="512" height="512" fill="url(#bg)"/>
+    <circle cx="352" cy="176" r="108" fill="#ffd98f" fill-opacity="0.55"/>
+    <path d="M16 404 C140 384 300 420 496 392 L496 496 L16 496 Z" fill="#e9906c" fill-opacity="0.18"/>
   </g>
+  <path d="M256 74 C286 122 302 172 298 222 C294 262 278 292 270 314 L242 314 C234 292 218 262 214 222 C210 172 226 122 256 74 Z M240 304 C210 262 170 236 132 240 C102 243 86 268 98 292 C106 308 126 312 140 302 C122 300 114 284 124 272 C142 252 192 262 230 310 Z M272 304 C302 262 342 236 380 240 C410 243 426 268 414 292 C406 308 386 312 372 302 C390 300 398 284 388 272 C370 252 320 262 282 310 Z M206 300 H306 A14 14 0 0 1 306 328 H206 A14 14 0 0 1 206 300 Z M240 326 C240 360 249 390 256 416 C263 390 272 360 272 326 Z M228 326 C214 354 192 366 172 356 C188 356 204 344 212 326 Z M284 326 C298 354 320 366 340 356 C324 356 308 344 300 326 Z" fill="#8a3e2c" stroke="#8a3e2c" stroke-width="22" stroke-linejoin="round"/>
+  <path d="M256 74 C286 122 302 172 298 222 C294 262 278 292 270 314 L242 314 C234 292 218 262 214 222 C210 172 226 122 256 74 Z M240 304 C210 262 170 236 132 240 C102 243 86 268 98 292 C106 308 126 312 140 302 C122 300 114 284 124 272 C142 252 192 262 230 310 Z M272 304 C302 262 342 236 380 240 C410 243 426 268 414 292 C406 308 386 312 372 302 C390 300 398 284 388 272 C370 252 320 262 282 310 Z M206 300 H306 A14 14 0 0 1 306 328 H206 A14 14 0 0 1 206 300 Z M240 326 C240 360 249 390 256 416 C263 390 272 360 272 326 Z M228 326 C214 354 192 366 172 356 C188 356 204 344 212 326 Z M284 326 C298 354 320 366 340 356 C324 356 308 344 300 326 Z" fill="#fffaf3"/>
+  <path d="M256 118 C251 172 251 236 256 286" fill="none" stroke="#d27a5a" stroke-width="5" stroke-linecap="round"/>
+  <path d="M220 314 H292" stroke="#d27a5a" stroke-width="4" stroke-linecap="round"/>
 </svg>

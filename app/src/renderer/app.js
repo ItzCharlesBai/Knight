@@ -5,6 +5,7 @@ import home from "./pages/home.js";
 import proxies from "./pages/proxies.js";
 import profiles from "./pages/profiles.js";
 import convert from "./pages/convert.js";
+import servers from "./pages/servers.js";
 import connections from "./pages/connections.js";
 import rules from "./pages/rules.js";
 import logs from "./pages/logs.js";
@@ -16,20 +17,21 @@ const PAGES = [
   ["proxies", "代理", "globe", proxies, "Proxies"],
   ["profiles", "订阅", "layers", profiles, "Subscriptions"],
   ["convert", "转换", "shuffle", convert, "Conversion"],
+  ["servers", "服务器", "server", servers, "Servers"],
   ["connections", "连接", "link", connections, "Connections"],
   ["rules", "规则", "list", rules, "Rules"],
   ["logs", "日志", "terminal", logs, "Journal"],
   ["settings", "设置", "settings", settings, "Preferences"],
 ];
 
-const listeners = { state: new Set(), traffic: new Set(), log: new Set(), visible: new Set() };
+const listeners = { state: new Set(), traffic: new Set(), log: new Set(), visible: new Set(), vps: new Set() };
 const ctx = {
   state: null,
   traffic: { up: 0, down: 0, history: [] }, // 最近 60 秒
   memory: 0,
   logs: [], // 内核日志，最多 1000 条
   api: createApi(() => ctx.state && ctx.state.controller),
-  invoke: (method, ...args) => window.knight.invoke(method, ...args),
+  invoke: (method, ...args) => window.lily.invoke(method, ...args),
   toast,
   navigate: (page, anchor) => go(page, anchor),
   // type："state"（参数 coreUp 表示内核刚启动）、"traffic"、"log"、"visible"（窗口重新显示）；返回取消订阅函数
@@ -62,7 +64,7 @@ let currentName = "";
 function renderNav() {
   patch(
     document.getElementById("nav"),
-    html`${PAGES.map(([name, label, ic]) => html`<button class="nav-item ${name === currentName ? "active" : ""}" data-page="${name}">${icon(ic)}<span>${label}</span></button>`)}`
+    html`${PAGES.map(([name, label, ic, , en]) => html`<button class="nav-item ${name === currentName ? "active" : ""}" data-page="${name}">${icon(ic)}<span>${label}</span><em>${en}</em></button>`)}`
   );
 }
 
@@ -79,13 +81,13 @@ function go(name, anchor) {
   renderNav();
   if (anchor) setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: "start" }), 50);
   try {
-    localStorage.setItem("knight.page", currentName);
+    localStorage.setItem("lily.page", currentName);
   } catch {
     /* 存储不可用时忽略 */
   }
 }
 
-// 页头标题上方的小字：MISSION 01 — OVERVIEW（海报式编号）
+// 页头标题上方的小字：Nº 01 · Overview（像片头字幕的编号）
 function addKicker(root, index, english) {
   const h1 = root.querySelector(".page-head h1");
   if (!h1) return;
@@ -93,7 +95,7 @@ function addKicker(root, index, english) {
   block.className = "title-block";
   const kicker = document.createElement("div");
   kicker.className = "kicker";
-  kicker.textContent = `Mission ${String(index).padStart(2, "0")} — ${english}`;
+  kicker.textContent = `Nº ${String(index).padStart(2, "0")} · ${english}`;
   h1.replaceWith(block);
   block.append(kicker, h1);
 }
@@ -149,15 +151,16 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-window.knight.onState((state) => {
+window.lily.onState((state) => {
   const wasRunning = ctx.coreRunning();
   ctx.state = state;
   applyTheme();
   renderTraffic();
   ctx.emit("state", !wasRunning && ctx.coreRunning());
 });
-window.knight.onNavigate((page) => go(page));
-window.knight.onToast(({ message, type }) => toast(message, type));
+window.lily.onNavigate((page) => go(page));
+window.lily.onToast(({ message, type }) => toast(message, type));
+window.lily.onVps((msg) => ctx.emit("vps", msg));
 
 // 深浅色：跟随系统时交给 prefers-color-scheme，指定时直接写在根元素上
 function applyTheme() {
@@ -172,7 +175,7 @@ renderTraffic();
 if (!document.hidden) startStreams();
 let start = "home";
 try {
-  start = localStorage.getItem("knight.page") || "home";
+  start = localStorage.getItem("lily.page") || "home";
 } catch {
   /* 忽略 */
 }

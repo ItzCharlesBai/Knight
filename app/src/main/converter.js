@@ -6,7 +6,7 @@ import { toClientList } from "./formats.js";
 import { toLinks } from "./links.js";
 import { applyConvert, regionOf } from "./nodes.js";
 import { mergeParts } from "./profiles.js";
-import { clashSupports } from "./sidecar.js";
+import { clashSupports, juicitySupports } from "./sidecar.js";
 import { singboxSupports, toSingBox } from "./singbox.js";
 import { xraySupports } from "./xray.js";
 import { DEFAULTS, mergePatch } from "./store.js";
@@ -23,7 +23,7 @@ export const TARGETS = [
 ];
 
 // 协议名（预览里显示）和 VLESS 等协议的特性
-const PROTOCOL = { ss: "Shadowsocks", ssr: "ShadowsocksR", vmess: "VMess", vless: "VLESS", trojan: "Trojan", hysteria: "Hysteria", hysteria2: "Hysteria2", tuic: "TUIC", anytls: "AnyTLS", naive: "NaiveProxy", wireguard: "WireGuard", socks5: "SOCKS5", http: "HTTP", ssh: "SSH", snell: "Snell", mieru: "Mieru" };
+const PROTOCOL = { ss: "Shadowsocks", ssr: "ShadowsocksR", vmess: "VMess", vless: "VLESS", trojan: "Trojan", hysteria: "Hysteria", hysteria2: "Hysteria2", tuic: "TUIC", anytls: "AnyTLS", naive: "NaiveProxy", wireguard: "WireGuard", socks5: "SOCKS5", http: "HTTP", ssh: "SSH", snell: "Snell", mieru: "Mieru", juicity: "Juicity", sudoku: "Sudoku", trusttunnel: "TrustTunnel", masque: "MASQUE" };
 function features(n) {
   const f = [];
   if (n["reality-opts"]) f.push("REALITY");
@@ -46,6 +46,7 @@ export function stats(nodes) {
       ["mihomo", nodes.filter(clashSupports).length],
       ["sing-box", nodes.filter(singboxSupports).length],
       ["Xray", nodes.filter(xraySupports).length],
+      ...(nodes.some(juicitySupports) ? [["Juicity", nodes.filter(juicitySupports).length]] : []),
     ],
   };
 }

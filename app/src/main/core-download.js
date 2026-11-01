@@ -1,8 +1,8 @@
 // 内核登记表与下载：打包脚本（scripts/fetch-core.mjs）和应用内「下载 / 更新内核」共用
 import zlib from "node:zlib";
 
-// kind：clash = mihomo 系（读 Clash YAML，一套配置通用）；singbox = sing-box（配置由 Knight 自动转换）；
-// xray = Xray-core（没有 Clash 控制接口，只作为搭配内核运行部分节点）。sidecarOnly 的内核不能当主内核
+// kind：clash = mihomo 系（读 Clash YAML，一套配置通用）；singbox = sing-box（配置由 Lily 自动转换）；
+// xray = Xray-core、juicity = Juicity（没有 Clash 控制接口，只作为搭配内核运行部分节点）。sidecarOnly 的内核不能当主内核
 export const CORES = {
   mihomo: {
     label: "mihomo",
@@ -18,16 +18,9 @@ export const CORES = {
     repo: "MetaCubeX/mihomo",
     tag: "Prerelease-Alpha",
   },
-  "mihomo-smart": {
-    label: "mihomo Smart",
-    desc: "第三方分支（vernesong），多一种 Smart 分组：按实际使用情况自动挑节点",
-    kind: "clash",
-    repo: "vernesong/mihomo",
-    tag: "Prerelease-Alpha",
-  },
   "sing-box": {
     label: "sing-box",
-    desc: "SagerNet 的另一套实现，支持 NaiveProxy；订阅和防泄露规则由 Knight 自动转换",
+    desc: "SagerNet 的另一套实现，支持 NaiveProxy；订阅和防泄露规则由 Lily 自动转换",
     kind: "singbox",
     repo: "SagerNet/sing-box",
     tag: "",
@@ -48,10 +41,19 @@ export const CORES = {
     tag: "",
     sidecarOnly: true,
   },
+  juicity: {
+    label: "Juicity",
+    desc: "基于 QUIC 的 Juicity 协议的官方实现，mihomo 和 sing-box 都还不支持。只作搭配：每个 Juicity 节点由它单独运行",
+    kind: "juicity",
+    repo: "juicity/juicity",
+    tag: "",
+    sidecarOnly: true,
+    perNode: true, // 一个进程只能连一台服务器
+  },
 };
 export const CORE_IDS = Object.keys(CORES);
 
-const BIN = { clash: "mihomo", singbox: "sing-box", xray: "xray" };
+const BIN = { clash: "mihomo", singbox: "sing-box", xray: "xray", juicity: "juicity-client" };
 export const binName = (id = "mihomo", platform = process.platform) => BIN[(CORES[id] || CORES.mihomo).kind] + (platform === "win32" ? ".exe" : "");
 export const coreFileName = (platform = process.platform) => binName("mihomo", platform);
 
@@ -69,6 +71,12 @@ export function assetName(version, platform = process.platform, arch = process.a
     const xos = { windows: "windows", darwin: "macos", linux: "linux" }[os];
     const xcpu = { amd64: "64", arm64: "arm64-v8a", 386: "32", armv7: "arm32-v7a" }[cpu];
     return `Xray-${xos}-${xcpu}.zip`;
+  }
+  // juicity-linux-x86_64.zip、juicity-macos-arm64.zip、juicity-windows-x86_64.zip
+  if (kind === "juicity") {
+    const jos = { windows: "windows", darwin: "macos", linux: "linux" }[os];
+    const jcpu = { amd64: "x86_64", arm64: "arm64", 386: "x86_32", armv7: "armv7" }[cpu];
+    return `juicity-${jos}-${jcpu}.zip`;
   }
   // amd64 用 compatible 版本：不要求 CPU 支持 AVX2 等新指令，老电脑也能跑
   const variant = cpu === "amd64" ? "-compatible" : "";
@@ -125,13 +133,14 @@ export function extractCore(archive, name, bin) {
   throw new Error("未知的压缩格式：" + name);
 }
 
-// 压缩包里的文件放平；可执行文件统一改名为 mihomo(.exe) / sing-box(.exe)，其余（动态库）原名保留
+// 压缩包里的文件放平；可执行文件统一改名为 mihomo(.exe) / sing-box(.exe) 等，另外只保留它要用的动态库（sing-box 的 libcronet）
+const LIB = /\.(so|dylib|dll)(\.\d+)*$/i;
 function pickBinary(entries, bin) {
-  // 不要说明文件和 Xray 自带的 geoip.dat / geosite.dat（搭配内核用不到）
-  const files = entries.filter((e) => !/(^|\/)(LICENSE|README)[^/]*$|\.dat$/i.test(e.name)).map((e) => ({ name: e.name.split("/").pop(), data: e.data }));
-  const exe = bin.endsWith(".exe") ? files.find((f) => /\.exe$/i.test(f.name)) : files.find((f) => f.name === bin.replace(/\.exe$/, "")) || files.find((f) => !/\.(so|dylib|dll)(\.\d+)*$/.test(f.name));
+  const files = entries.map((e) => ({ name: e.name.split("/").pop(), data: e.data })).filter((f) => f.name);
+  const exact = files.find((f) => f.name.toLowerCase() === bin.toLowerCase() || f.name === bin.replace(/\.exe$/, ""));
+  const exe = exact || (bin.endsWith(".exe") ? files.find((f) => /\.exe$/i.test(f.name)) : files.find((f) => !LIB.test(f.name) && !/\.(dat|json|service|md|txt)$|^(LICENSE|README)/i.test(f.name)));
   if (!exe) throw new Error("压缩包里没有找到内核文件");
-  return [{ name: bin, data: exe.data }, ...files.filter((f) => f !== exe)];
+  return [{ name: bin, data: exe.data }, ...files.filter((f) => f !== exe && LIB.test(f.name))];
 }
 
 // 最小 tar 解析：普通文件，支持 ustar 前缀和 GNU 长文件名

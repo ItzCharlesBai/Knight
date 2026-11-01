@@ -1,6 +1,6 @@
 # 打包配置：先运行 npm run core（或 dist:* 脚本会自动下载对应平台的内核和 GEO 数据）
-appId: io.github.knight.app
-productName: Knight
+appId: io.github.lily.app
+productName: Lily
 copyright: MIT
 directories:
   output: dist
@@ -9,6 +9,13 @@ files:
   - src/**
   - resources/icons/**
   - "!**/*.map"
+  # ssh2 的原生加速模块是给 Node 编译的，Electron 里用不上（ssh2 会自动改用纯 JS 实现）
+  - "!node_modules/ssh2/lib/protocol/crypto/build/**"
+  - "!node_modules/cpu-features/**"
+  - "!node_modules/nan/**"
+  - "!node_modules/*/{test,tests,examples,experiment}/**"
+# 没有需要为 Electron 重新编译的原生模块
+npmRebuild: false
 extraResources:
   # 内核：resources/core/<os>-<arch>/ → 安装目录 resources/core/
   - from: resources/core/${os}-${arch}
@@ -26,7 +33,7 @@ publish: null
 icon: resources/icons/icon.png
 protocols:
   - name: Clash 订阅
-    schemes: [clash, mihomo, knight]
+    schemes: [clash, mihomo, lily]
 
 win:
   target:
@@ -37,15 +44,15 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-  shortcutName: Knight
-  artifactName: Knight-${version}-win-${arch}-setup.${ext}
+  shortcutName: Lily
+  artifactName: Lily-${version}-win-${arch}-setup.${ext}
 
 mac:
   target:
     - target: dmg
       arch: [arm64, x64]
   category: public.app-category.utilities
-  artifactName: Knight-${version}-mac-${arch}.${ext}
+  artifactName: Lily-${version}-mac-${arch}.${ext}
   # 内核需要 setuid 才能开虚拟网卡，所以它放在用户目录运行，不在签名的 .app 里修改
 
 linux:
@@ -55,8 +62,8 @@ linux:
     - target: deb
       arch: [x64, arm64]
   category: Network
-  maintainer: Knight
-  synopsis: 简洁的 mihomo 客户端
-  artifactName: Knight-${version}-linux-${arch}.${ext}
+  maintainer: Lily
+  synopsis: 多内核桌面代理客户端
+  artifactName: Lily-${version}-linux-${arch}.${ext}
 deb:
   depends: [libcap2-bin, policykit-1]

@@ -1,10 +1,10 @@
 {
-  "name": "knight",
-  "productName": "Knight",
+  "name": "lily",
+  "productName": "Lily",
   "version": "0.1.0",
   "private": true,
-  "description": "简洁的 mihomo 桌面客户端，内置防 DNS / WebRTC / IPv6 泄露",
-  "author": "Knight",
+  "description": "Lily：多内核（mihomo / sing-box / Xray）的桌面代理客户端，内置防 DNS / WebRTC / IPv6 泄露、订阅转换、多订阅同时使用和 VPS 管理",
+  "author": "Lily",
   "license": "MIT",
   "type": "module",
   "main": "src/main/index.js",
@@ -17,7 +17,9 @@
     "dist:linux": "node scripts/fetch-core.mjs --platform linux --arch x64 && node scripts/fetch-core.mjs --platform linux --arch arm64 && electron-builder --linux"
   },
   "dependencies": {
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "qrcode-generator": "^2.0.4",
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
     "electron": "^38.0.0",

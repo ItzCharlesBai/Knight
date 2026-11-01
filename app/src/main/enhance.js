@@ -120,21 +120,11 @@ function ensureDNS(config) {
   });
 }
 
-// mihomo Smart 内核：把自动测速分组换成 Smart 分组（按实际连接质量学习选择节点）
-function useSmartGroups(config) {
-  config["proxy-groups"] = (config["proxy-groups"] || []).map((g) => {
-    if (!isMap(g) || g.type !== "url-test") return g;
-    const out = Object.assign({}, g, { type: "smart" });
-    delete out.tolerance;
-    return out;
-  });
-}
-
 // core：{ id, kind }；sidecars：已下载、可以搭配的内核 [{ id, kind, bin, label }]，按优先顺序
 // singbox：{ providers, ruleSetPath, version } 转 sing-box 时用
 export function generate({ profile, settings, scriptSource = "", mergeSource = "", profileName = "", core = { id: "mihomo", kind: "clash" }, sidecars = [], singbox = {} }) {
   const logs = [];
-  const info = (message, level = "info") => logs.push({ source: "Knight", level, message });
+  const info = (message, level = "info") => logs.push({ source: "Lily", level, message });
 
   // 当前内核跑不了的节点（或者指定交给 Xray 的 VLESS 节点）：交给搭配内核，没有可用的就去掉
   const available = settings.combine ? sidecars : [];
@@ -150,7 +140,7 @@ export function generate({ profile, settings, scriptSource = "", mergeSource = "
     info(`${mine.length} 个节点由 ${sc.label || sc.id} 搭配运行：${mine.map((e) => e.node.name).slice(0, 5).join("、")}`);
   }
   if (split.dropped.length) {
-    const hint = core.kind === "singbox" ? "mihomo 或 Xray" : "sing-box 或 Xray";
+    const hint = core.kind === "singbox" ? "mihomo、Xray 或 Juicity" : "sing-box、Xray 或 Juicity";
     info(
       `${split.dropped.length} 个节点当前内核不支持，已跳过：${split.dropped.slice(0, 5).join("、")}` +
         (settings.combine ? `。在 设置 → 内核 里下载 ${hint} 后会自动搭配使用` : "。打开「搭配使用」后可交给另一个内核运行"),
@@ -177,17 +167,17 @@ export function generate({ profile, settings, scriptSource = "", mergeSource = "
   const extra = (settings.customRules || []).map((r) => String(r).trim()).filter(Boolean);
   if (extra.length) config.rules = extra.concat((Array.isArray(config.rules) ? config.rules : []).filter((r) => extra.indexOf(r) < 0));
 
-  if (core.id === "mihomo-smart" && settings.smartGroups) useSmartGroups(config);
-
   // 回写：脚本只能读这些字段，不能改（严格路由例外：脚本只在设置没管理时才动它，这里总是由设置决定）
   config = applySettings(config, settings);
   ensureDNS(config);
 
-  const plans = used.map((sc) => {
+  // key 区分同一个内核的多个进程（Juicity 每个节点一个进程）
+  const plans = used.flatMap((sc) => {
     const mine = split.entries.filter((e) => e.sidecar === sc.id);
-    return { id: sc.id, kind: sc.kind, bin: sc.bin, entries: mine.length, text: sidecarConfig(sc.kind, mine) };
+    if ((CORES[sc.id] || {}).perNode) return mine.map((e, i) => ({ id: sc.id, key: `${sc.id}-${i + 1}`, kind: sc.kind, bin: sc.bin, entries: 1, text: sidecarConfig(sc.kind, [e]) }));
+    return [{ id: sc.id, key: sc.id, kind: sc.kind, bin: sc.bin, entries: mine.length, text: sidecarConfig(sc.kind, mine) }];
   });
-  const bins = plans.map((p) => p.bin);
+  const bins = [...new Set(plans.map((p) => p.bin))];
   if (core.kind !== "singbox") {
     // 搭配的内核自己连节点，不能再被虚拟网卡绕回来
     if (bins.length) {

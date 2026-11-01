@@ -1,6 +1,8 @@
 // 订阅内容解析：Clash / mihomo YAML 原样使用；Base64 或逐行的分享链接（ss / ssr / vmess / vless / trojan / hysteria2 /
-// hysteria / tuic / anytls / naive / wireguard / socks5 / http）、sing-box 配置、SIP008 转换成节点，再套一份最简的分组和规则
+// hysteria / tuic / anytls / naive / juicity / mieru / wireguard / socks5 / http）、sing-box 配置、SIP008、
+// Surge / Loon / Quantumult X 的节点和配置文件转换成节点，再套一份最简的分组和规则
 import yaml from "js-yaml";
+import { parseClientConfig } from "./clients.js";
 import { buildTemplate } from "./nodes.js";
 import { fromOutbound } from "./singbox.js";
 
@@ -34,9 +36,15 @@ export function parseSubscription(text) {
     throw new Error("订阅里没有节点（缺少 proxies / proxy-providers）");
   }
 
-  const proxies = parseLinks(looksLikeLinks(text) ? text : decodeBase64(text) || "");
-  if (!proxies.length) throw new Error("无法识别的订阅格式：既不是 Clash 配置，也没有可用的分享链接");
-  return { config: wrapProxies(proxies), converted: true, format: "links" };
+  const body = looksLikeLinks(text) ? text : decodeBase64(text) || "";
+  const proxies = parseLinks(body);
+  if (proxies.length) return { config: wrapProxies(proxies), converted: true, format: "links" };
+  // Surge / Loon / Quantumult X（整份配置或者只有节点行，也可能是 Base64）
+  for (const candidate of [text, body]) {
+    const client = parseClientConfig(candidate);
+    if (client.nodes.length) return { config: wrapProxies(uniqueNames(client.nodes)), converted: true, format: client.format };
+  }
+  throw new Error("无法识别的订阅格式：既不是 Clash 配置，也没有可用的分享链接或 Surge / Loon / Quantumult X 节点");
 }
 
 // 逐行解析分享链接，认不出的行跳过
@@ -115,6 +123,10 @@ function parseLink(line) {
     case "wireguard":
     case "wg":
       return parseWireGuard(line);
+    case "juicity":
+      return parseJuicity(line);
+    case "mierus":
+      return parseMieru(line);
     case "socks":
     case "socks5":
     case "http":
@@ -145,9 +157,10 @@ function parseSS(line) {
   // 旧格式 ss://base64(method:password@host:port)
   if (!body.includes("@")) body = decodeBase64(body.split("?")[0]) + (body.includes("?") ? "?" + body.split("?")[1] : "");
   const url = new URL("ss://" + body);
+  // 明文 method:password（SIP022 / 2022 系列）或 Base64(method:password)（SIP002）
   let userinfo = decodeURIComponent(url.username);
-  if (!userinfo.includes(":")) userinfo = decodeBase64(userinfo) || "";
   if (url.password) userinfo += ":" + decodeURIComponent(url.password);
+  else if (!userinfo.includes(":")) userinfo = decodeBase64(userinfo) || "";
   const split = userinfo.indexOf(":");
   const node = { name, type: "ss", server: hostOf(url), port: portOf(url), cipher: userinfo.slice(0, split), password: userinfo.slice(split + 1), udp: true };
   const plugin = url.searchParams.get("plugin");
@@ -256,8 +269,32 @@ function transportOpts(node, network, get) {
   }
 }
 
+// Shadowrocket 的 vmess 写法：vmess://Base64(cipher:uuid@host:port)?remarks=…&obfs=websocket&tls=1&peer=…&path=…&obfsParam=…
+function parseShadowrocketVmess(line) {
+  const [b64, query = ""] = line.slice(8).split("?");
+  const m = /^([\w-]+):([\w-]+)@(.+):(\d+)$/.exec(decodeBase64(b64.split("#")[0]) || "");
+  if (!m) return null;
+  const q = new URLSearchParams(query.split("#")[0]);
+  const node = { name: q.get("remarks") || decodeName(line.includes("#") ? line.slice(line.indexOf("#")) : ""), type: "vmess", server: m[3].replace(/^\[|\]$/g, ""), port: Number(m[4]), uuid: m[2], alterId: Number(q.get("alterId") || 0), cipher: m[1] === "none" ? "none" : "auto", udp: true };
+  if (q.get("tls") === "1") {
+    node.tls = true;
+    if (q.get("peer")) node.servername = q.get("peer");
+    if (bool(q.get("allowInsecure"))) node["skip-cert-verify"] = true;
+  }
+  if (q.get("obfs") === "websocket") {
+    node.network = "ws";
+    node["ws-opts"] = Object.assign({ path: q.get("path") || "/" }, q.get("obfsParam") ? { headers: { Host: q.get("obfsParam") } } : {});
+  } else if (q.get("obfs") === "grpc") {
+    node.network = "grpc";
+    node["grpc-opts"] = { "grpc-service-name": q.get("path") || "" };
+  }
+  return node;
+}
+
 function parseVmess(line) {
-  const json = JSON.parse(decodeBase64(line.slice(8)));
+  const decoded = decodeBase64(line.slice(8).split("?")[0].split("#")[0]) || "";
+  if (!decoded.trim().startsWith("{")) return parseShadowrocketVmess(line);
+  const json = JSON.parse(decoded);
   const network = json.net || "tcp";
   const node = {
     name: json.ps || "",
@@ -341,6 +378,8 @@ function parseHysteria2(line) {
   const node = { name: decodeName(url.hash), type: "hysteria2", server: hostOf(url), port: portOf(url, 443), password: auth };
   if (q.get("sni")) node.sni = q.get("sni");
   if (bool(q.get("insecure"))) node["skip-cert-verify"] = true;
+  // 自签证书的服务器：固定证书指纹
+  if (q.get("pinSHA256")) node.fingerprint = q.get("pinSHA256").replace(/:/g, "").toLowerCase();
   if (q.get("obfs")) {
     node.obfs = q.get("obfs");
     node["obfs-password"] = q.get("obfs-password") || "";
@@ -424,12 +463,47 @@ function parseWireGuard(line) {
   return node.server && node["private-key"] && node["public-key"] ? node : null;
 }
 
+// Juicity 只有它自己的内核支持：由 Juicity 内核搭配运行
+function parseJuicity(line) {
+  const url = new URL(line);
+  const q = url.searchParams;
+  const node = { name: decodeName(url.hash), type: "juicity", server: hostOf(url), port: portOf(url, 443), uuid: decodeURIComponent(url.username), password: decodeURIComponent(url.password), "congestion-controller": q.get("congestion_control") || "bbr", udp: true };
+  if (q.get("sni")) node.sni = q.get("sni");
+  if (bool(q.get("allow_insecure"))) node["skip-cert-verify"] = true;
+  if (q.get("pinned_certchain_sha256")) node["pinned-certchain-sha256"] = q.get("pinned_certchain_sha256");
+  return node.server && node.uuid ? node : null;
+}
+
+// Mieru 的简单分享链接：mierus://用户:密码@服务器?port=…&protocol=TCP&multiplexing=…（可以有多组端口和协议，取第一组 TCP）
+function parseMieru(line) {
+  const url = new URL(line);
+  const q = url.searchParams;
+  const ports = q.getAll("port");
+  const protocols = q.getAll("protocol");
+  let i = protocols.findIndex((p) => p.toUpperCase() === "TCP");
+  if (i < 0) i = 0;
+  const port = ports[i] || ports[0] || "";
+  const node = { name: decodeName(url.hash) || q.get("profile") || "", type: "mieru", server: hostOf(url), username: decodeURIComponent(url.username), password: decodeURIComponent(url.password), transport: (protocols[i] || "TCP").toUpperCase(), udp: true };
+  if (/^\d+-\d+$/.test(port)) node["port-range"] = port;
+  else node.port = Number(port);
+  if (q.get("multiplexing")) node.multiplexing = q.get("multiplexing");
+  return node.server && node.username && (node.port || node["port-range"]) ? node : null;
+}
+
 function parseSocksHttp(line, scheme) {
   const url = new URL(line);
   const type = scheme.startsWith("socks") ? "socks5" : "http";
   const node = { name: decodeName(url.hash), type, server: hostOf(url), port: portOf(url, type === "http" ? (scheme === "https" ? 443 : 80) : 1080) };
   if (url.username) node.username = decodeURIComponent(url.username);
   if (url.password) node.password = decodeURIComponent(url.password);
+  // v2rayN 的写法：socks://Base64(用户:密码)@服务器:端口
+  if (node.username && !url.password) {
+    const plain = decodeBase64(node.username);
+    if (plain && /^[^:]+:.*$/.test(plain) && /^[\x20-\x7e]+$/.test(plain)) {
+      node.username = plain.slice(0, plain.indexOf(":"));
+      node.password = plain.slice(plain.indexOf(":") + 1);
+    }
+  }
   if (scheme === "https") node.tls = true;
   if (type === "socks5") node.udp = true;
   return node.server ? node : null;

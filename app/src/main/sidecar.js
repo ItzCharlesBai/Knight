@@ -8,13 +8,37 @@ import { xrayConfig, xraySupports } from "./xray.js";
 
 const isMap = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
-// mihomo 不支持的类型（来自分享链接的 naive 等）
-const CLASH_UNSUPPORTED = new Set(["naive"]);
-export const clashSupports = (node) => isMap(node) && !CLASH_UNSUPPORTED.has(node.type) && !(node.type === "vless" && node.network === "mkcp");
+// mihomo 不支持的类型（来自分享链接的 naive、juicity），以及 v4 以后的 Snell
+const CLASH_UNSUPPORTED = new Set(["naive", "juicity"]);
+export const clashSupports = (node) => isMap(node) && !CLASH_UNSUPPORTED.has(node.type) && !(node.type === "vless" && node.network === "mkcp") && !(node.type === "snell" && Number(node.version) > 3);
+export const juicitySupports = (node) => isMap(node) && node.type === "juicity" && !!node.uuid;
 export function supports(kind, node) {
   if (kind === "singbox") return singboxSupports(node);
   if (kind === "xray") return xraySupports(node);
+  if (kind === "juicity") return juicitySupports(node);
   return clashSupports(node);
+}
+
+// Juicity 客户端：一个进程连一台服务器，本地开 HTTP / SOCKS5 混合端口
+export function juicityConfig(entry) {
+  const n = entry.node;
+  return JSON.stringify(
+    Object.assign(
+      {
+        listen: `127.0.0.1:${entry.port}`,
+        server: `${String(n.server).includes(":") ? `[${n.server}]` : n.server}:${n.port}`,
+        uuid: n.uuid,
+        password: n.password || "",
+        sni: n.sni || n.servername || "",
+        allow_insecure: !!n["skip-cert-verify"],
+        congestion_control: n["congestion-controller"] || "bbr",
+        log_level: "warn",
+      },
+      n["pinned-certchain-sha256"] ? { pinned_certchain_sha256: n["pinned-certchain-sha256"] } : {}
+    ),
+    null,
+    2
+  );
 }
 
 // 「交给 Xray」的范围：off | reality | vless
@@ -65,6 +89,7 @@ export function splitNodes(config, mainKind, { sidecars = [], xrayFor = "off", b
 // 搭配内核的配置：只负责把每个本地入口转到对应节点
 export function sidecarConfig(kind, entries) {
   if (kind === "xray") return xrayConfig(entries);
+  if (kind === "juicity") return juicityConfig(entries[0]);
   if (kind === "clash") {
     return yaml.dump(
       {
@@ -73,7 +98,7 @@ export function sidecarConfig(kind, entries) {
         "find-process-mode": "off",
         dns: { enable: true, ipv6: true, nameserver: ["https://223.5.5.5/dns-query", "https://1.12.12.12/dns-query"], "default-nameserver": ["223.5.5.5", "119.29.29.29"] },
         proxies: entries.map((e) => e.node),
-        listeners: entries.map((e, i) => ({ name: `knight-${i}`, type: "socks", listen: "127.0.0.1", port: e.port, udp: true, proxy: e.node.name })),
+        listeners: entries.map((e, i) => ({ name: `lily-${i}`, type: "socks", listen: "127.0.0.1", port: e.port, udp: true, proxy: e.node.name })),
         rules: ["MATCH,DIRECT"],
       },
       { lineWidth: -1, noRefs: true }

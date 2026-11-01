@@ -1,4 +1,4 @@
-// 节点 → 分享链接（订阅转换的「分享链接」输出；ss / vmess / vless / trojan / hysteria2 / hysteria / tuic / anytls / socks / http / naive）
+// 节点 → 分享链接（订阅转换的「分享链接」输出；ss / vmess / vless / trojan / hysteria2 / hysteria / tuic / anytls / juicity / mieru / socks / http / naive）
 const enc = encodeURIComponent;
 const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
 const b64url = (s) => b64(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -94,7 +94,9 @@ export function toLink(n) {
       if (n.plugin === "obfs") plugin = `obfs-local;obfs=${o.mode || "http"}${o.host ? ";obfs-host=" + o.host : ""}`;
       else if (n.plugin === "v2ray-plugin") plugin = `v2ray-plugin;mode=${o.mode || "websocket"}${o.host ? ";host=" + o.host : ""}${o.path ? ";path=" + o.path : ""}${o.tls ? ";tls" : ""}`;
       else if (n.plugin) return null;
-      return `ss://${b64url(`${n.cipher}:${n.password}`)}@${at}${query({ plugin })}${name}`;
+      // SIP022：2022 系列的密钥直接写（百分号编码），其余按 SIP002 用 Base64
+      const userinfo = /^2022-/.test(n.cipher) ? `${enc(n.cipher)}:${enc(n.password)}` : b64url(`${n.cipher}:${n.password}`);
+      return `ss://${userinfo}@${at}${query({ plugin })}${name}`;
     }
     case "vmess": {
       const t = transportParams(n);
@@ -126,7 +128,7 @@ export function toLink(n) {
     case "trojan":
       return `trojan://${enc(n.password)}@${at}${query(Object.assign(tlsParams(n, "sni"), transportParams(n)))}${name}`;
     case "hysteria2":
-      return `hysteria2://${enc(n.password || n.auth || "")}@${at}${query({ sni: n.sni, insecure: n["skip-cert-verify"], obfs: n.obfs, "obfs-password": n["obfs-password"], mport: n.ports })}${name}`;
+      return `hysteria2://${enc(n.password || n.auth || "")}@${at}${query({ sni: n.sni, insecure: n["skip-cert-verify"], pinSHA256: n.fingerprint, obfs: n.obfs, "obfs-password": n["obfs-password"], mport: n.ports })}${name}`;
     case "hysteria":
       return `hysteria://${at}${query({ protocol: n.protocol || "udp", auth: n["auth-str"] || n.auth_str, peer: n.sni, insecure: n["skip-cert-verify"], upmbps: parseInt(n.up, 10) || undefined, downmbps: parseInt(n.down, 10) || undefined, obfs: n.obfs, alpn: n.alpn })}${name}`;
     case "tuic":
@@ -139,6 +141,10 @@ export function toLink(n) {
       return `${n.tls ? "https" : "http"}://${n.username ? enc(n.username) + ":" + enc(n.password || "") + "@" : ""}${at}${name}`;
     case "naive":
       return `naive+${n.quic ? "quic" : "https"}://${enc(n.username || "")}:${enc(n.password || "")}@${at}${name}`;
+    case "juicity":
+      return `juicity://${enc(n.uuid)}:${enc(n.password || "")}@${at}${query({ congestion_control: n["congestion-controller"] || "bbr", sni: n.sni, allow_insecure: n["skip-cert-verify"], pinned_certchain_sha256: n["pinned-certchain-sha256"] })}${name}`;
+    case "mieru":
+      return `mierus://${enc(n.username)}:${enc(n.password)}@${host(n.server)}${query({ port: n.port || n["port-range"], protocol: n.transport || "TCP", multiplexing: n.multiplexing })}${name}`;
     default:
       return null;
   }

@@ -41,6 +41,10 @@ function surge(n) {
       return base + join(["snell", n.server, n.port, `psk=${n.psk}`, n.version && `version=${n.version}`]);
     case "socks5":
       return base + join([n.tls ? "socks5-tls" : "socks5", n.server, n.port, n.username, n.password, ...tls()]);
+    case "ssh":
+      return n.password ? base + join(["ssh", n.server, n.port || 22, `username=${n.username}`, `password=${n.password}`]) : null;
+    case "anytls":
+      return base + join(["anytls", n.server, n.port, `password=${n.password}`, ...tls(true)]);
     case "http":
       return base + join([n.tls ? "https" : "http", n.server, n.port, n.username, n.password, ...tls()]);
     default:

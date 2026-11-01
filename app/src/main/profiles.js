@@ -7,7 +7,26 @@ import yaml from "js-yaml";
 import { filenameFromDisposition, parseSubscription, parseUserinfo } from "./convert.js";
 import { applyConvert, DEFAULT_CONVERT, processNodes } from "./nodes.js";
 
-export const USER_AGENT = "clash.meta/knight";
+export const USER_AGENT = "clash.meta/lily";
+// 不是 Clash 配置的订阅（分享链接、sing-box、SIP008、Surge / Quantumult X / Loon）导入时自动转换：按地区分组、加国旗、去重、去掉信息节点。
+// 用户在「订阅设置」里改过转换选项后（auto: false）就不再自动套用
+export const AUTO_CONVERT = { template: "region", dropInfo: true, emoji: true, dedupe: true };
+export const FORMAT_LABEL = { clash: "Clash 配置", links: "分享链接", singbox: "sing-box 配置", sip008: "SIP008", surge: "Surge 配置", quanx: "Quantumult X 配置", loon: "Loon 配置" };
+
+// 按订阅内容决定要不要自动转换
+function autoConvert(item, { converted, format }) {
+  item.format = format;
+  item.converted = converted;
+  if (item.auto === false) return;
+  if (converted && !item.convert) {
+    item.convert = checkConvert(AUTO_CONVERT);
+    item.auto = true;
+  } else if (!converted && item.auto) {
+    // 订阅换成了完整的 Clash 配置：用它自带的分组和规则
+    delete item.convert;
+    delete item.auto;
+  }
+}
 const isMap = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const dump = (v) => yaml.dump(v, { lineWidth: -1, noRefs: true });
 
@@ -81,16 +100,20 @@ export class Profiles {
   write(id, text) {
     const item = this.get(id);
     if (!item) throw new Error("订阅不存在");
-    const { config } = parseSubscription(text);
+    const parsed = parseSubscription(text);
     this.writeFile(id, text);
-    this.touch(id, { updatedAt: Date.now(), nodes: countNodes(config) });
+    autoConvert(item, parsed);
+    this.touch(id, { updatedAt: Date.now(), nodes: countNodes(parsed.config) });
   }
 
   async add({ url, name = "", interval = 0, convert = null }) {
     url = String(url || "").trim();
     if (!/^https?:\/\//i.test(url)) throw new Error("请输入 http:// 或 https:// 开头的订阅链接");
     const item = { id: newId(), type: "remote", name: name.trim(), url, interval: Number(interval) || 0, createdAt: Date.now() };
-    if (convert) item.convert = checkConvert(convert);
+    if (convert) {
+      item.convert = checkConvert(convert);
+      item.auto = false;
+    }
     await this.download(item);
     this.items.push(item);
     this.saveIndex();
@@ -116,9 +139,13 @@ export class Profiles {
   }
 
   import({ name, text, convert = null }) {
-    const { config } = parseSubscription(text);
-    const item = { id: newId(), type: "local", name: String(name || "本地配置").replace(/\.(ya?ml|txt|json|conf)$/i, ""), createdAt: Date.now(), updatedAt: Date.now(), nodes: countNodes(config) };
-    if (convert) item.convert = checkConvert(convert);
+    const parsed = parseSubscription(text);
+    const item = { id: newId(), type: "local", name: String(name || "本地配置").replace(/\.(ya?ml|txt|json|conf)$/i, ""), createdAt: Date.now(), updatedAt: Date.now(), nodes: countNodes(parsed.config) };
+    if (convert) {
+      item.convert = checkConvert(convert);
+      item.auto = false;
+    }
+    autoConvert(item, parsed);
     this.writeFile(item.id, text);
     this.items.push(item);
     this.saveIndex();
@@ -143,12 +170,12 @@ export class Profiles {
 
   async download(item, viaProxy = false) {
     const { res, text } = await this.fetchText(item.url, item.userAgent, viaProxy);
-    const { converted, config } = parseSubscription(text); // 不能用的内容不覆盖已有的
+    const parsed = parseSubscription(text); // 不能用的内容不覆盖已有的
     this.writeFile(item.id, text);
     const header = (k) => res.headers.get(k);
     item.updatedAt = Date.now();
-    item.converted = converted;
-    item.nodes = countNodes(config);
+    autoConvert(item, parsed);
+    item.nodes = countNodes(parsed.config);
     item.userinfo = parseUserinfo(header("subscription-userinfo"));
     const hours = Number(header("profile-update-interval"));
     if (!item.interval && hours > 0) item.interval = Math.round(hours * 60);
@@ -230,7 +257,12 @@ export class Profiles {
     if (item.type === "remote" && typeof patch.url === "string" && /^https?:\/\//i.test(patch.url.trim())) item.url = patch.url.trim();
     if (patch.interval !== undefined && Number(patch.interval) >= 0) item.interval = Math.round(Number(patch.interval));
     if (typeof patch.userAgent === "string") item.userAgent = patch.userAgent.trim();
-    if (patch.convert !== undefined) item.convert = patch.convert ? checkConvert(patch.convert) : undefined;
+    if (patch.convert !== undefined) {
+      const next = patch.convert ? checkConvert(patch.convert) : undefined;
+      // 选项真的变了才算用户自己管理（只是打开设置再保存不算）
+      if (JSON.stringify(next) !== JSON.stringify(item.convert)) item.auto = false;
+      item.convert = next;
+    }
     if (item.type === "combo" && Array.isArray(patch.sources) && patch.sources.length) item.sources = patch.sources.map(cleanSource);
     this.cache.delete(id);
     this.saveIndex();

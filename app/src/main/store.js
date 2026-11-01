@@ -3,15 +3,13 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 
 export const DEFAULTS = {
-  // 内核：mihomo | mihomo-alpha | mihomo-smart | sing-box
+  // 主内核：mihomo | mihomo-alpha | sing-box | sing-box-beta（Xray 等只能搭配使用）
   core: "mihomo",
   // 搭配使用：当前内核不支持的节点交给另一个已下载的内核运行（本地 SOCKS 入口从 sidecarPort 开始）
   combine: true,
   sidecarPort: 7920,
   // 哪些 VLESS 节点优先交给 Xray（需要先下载 Xray）：off | reality | vless
   xrayFor: "off",
-  // mihomo Smart 内核：自动测速分组换成 Smart 分组
-  smartGroups: true,
   mode: "rule",
   mixedPort: 7897,
   controllerPort: 9097,
@@ -48,16 +46,28 @@ export const DEFAULTS = {
   customRules: [],
   customScript: { enabled: false, code: "// 在防泄露脚本之后执行，config 是生成好的配置\nfunction main(config, profileName) {\n  return config;\n}\n" },
 
+  // 共享订阅：局域网里的订阅地址（/sub/<token>/<格式>），profiles 为空表示共享在用的订阅
+  share: {
+    enabled: false,
+    port: 7899,
+    token: "",
+    profiles: [],
+    options: { template: "region", include: "", exclude: "", types: "", dropInfo: true, rename: "", emoji: true, dedupe: true, sort: "none", udp: false, skipCert: false },
+    leakGuard: false,
+  },
+
   // 测速
   delayUrl: "https://www.gstatic.com/generate_204",
   delayTimeout: 5000,
 
-  // 应用
+  // 订阅：主订阅（提供分组和规则）+ 同时使用的其他订阅（节点作为额外的分组加入）
   currentProfile: "",
+  extraProfiles: [],
+  // 应用
   autoLaunch: false,
   silentStart: false,
   closeToTray: true,
-  theme: "dark", // 界面按夜空的电影海报设计，默认深色；也可以跟随系统或用浅色
+  theme: "light", // 默认「夏日」浅色；也可以用「黄昏」深色或跟随系统
   githubMirror: "",
   updateViaProxy: false,
 };

@@ -14,6 +14,10 @@ const TYPES = [
   ["wireguard", "WireGuard"],
   ["naive", "Naive"],
   ["ssr", "SSR"],
+  ["snell", "Snell"],
+  ["mieru", "Mieru"],
+  ["juicity", "Juicity"],
+  ["ssh", "SSH"],
 ];
 const SORTS = [
   ["none", "保持原顺序"],

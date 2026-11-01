@@ -1,8 +1,12 @@
-// 订阅：添加（链接 / 本地文件 / 拖入）、切换、更新、编辑、删除
+// 订阅：添加（链接 / 本地文件 / 拖入）、同时使用多个、设主订阅、更新、编辑、删除
 import { convertFields, readConvert } from "../convert-form.js";
 import { ago, bytes, confirm, date, delegate, html, icon, modal, patch, raw } from "../lib.js";
 
 const TYPE_LABEL = { remote: "远程订阅", local: "本地配置", combo: "组合订阅" };
+const FORMAT_LABEL = { clash: "Clash 配置", links: "分享链接", singbox: "sing-box 配置", sip008: "SIP008", surge: "Surge 配置", quanx: "Quantumult X 配置", loon: "Loon 配置" };
+// 导入后的提示：不是 Clash 配置的订阅会自动转换
+const importedText = (p) =>
+  `已导入「${p.name}」` + (p.auto ? `：识别为${FORMAT_LABEL[p.format] || "节点列表"}，已自动转换成 ${p.nodes || 0} 个节点，按地区分好组` : p.format === "clash" ? "，Clash 配置直接使用" : "");
 
 export default function profiles(root, ctx) {
   root.innerHTML = html`
@@ -13,13 +17,14 @@ export default function profiles(root, ctx) {
       </div>
     </header>
     <form class="card add-bar" id="s-add">
-      <input data-key="url" name="url" placeholder="粘贴订阅链接：Clash / mihomo 订阅，或 vless:// vmess:// trojan:// hy2:// ss:// 等节点链接组成的订阅" autocomplete="off" />
+      <input data-key="url" name="url" placeholder="订阅链接：任何格式都行（Clash、分享链接、sing-box、Surge 等），导入时自动识别并转换" autocomplete="off" />
       <button class="btn primary" type="submit">${icon("plus", 16)}导入</button>
       <button class="btn" type="button" data-action="file">${icon("file", 16)}本地文件</button>
     </form>
     <div id="s-error"></div>
+    <div id="s-summary"></div>
     <div class="profile-grid" id="s-list"></div>
-    <p class="muted small hint">也可以把配置文件直接拖进窗口；机场的「一键导入 Clash」链接会自动导入到这里。</p>`.s;
+    <p class="muted small hint">打开几个订阅的开关就能同时使用，不用来回切换：主订阅（★）提供分组和规则，其他订阅的节点各成一个分组，出现在「节点选择」等分组里。也可以把配置文件直接拖进窗口；机场的「一键导入 Clash」链接会自动导入到这里。</p>`.s;
 
   const $ = (id) => root.querySelector("#" + id);
 
@@ -27,22 +32,35 @@ export default function profiles(root, ctx) {
     const s = ctx.state;
     patch($("s-error"), s.apply.error ? html`<div class="notice bad">${s.apply.error}</div>` : "");
     if (!s.profiles.length) {
+      patch($("s-summary"), "");
       return patch($("s-list"), html`<div class="empty">还没有订阅，粘贴机场提供的订阅链接后点「导入」</div>`);
     }
-    patch($("s-list"), html`${s.profiles.map((p) => card(p, p.id === s.settings.currentProfile))}`);
+    const on = s.active.map((id) => find(id)).filter(Boolean);
+    const nodes = on.reduce((n, p) => n + (p.nodes || 0), 0);
+    patch(
+      $("s-summary"),
+      on.length > 1
+        ? html`<div class="stack-note">${icon("layers", 16)}<span><b>${on.length}</b> 个订阅同时使用${nodes ? html`，共 <b>${nodes}</b> 个节点` : ""} · 主订阅「${on[0].name}」</span></div>`
+        : ""
+    );
+    patch($("s-list"), html`${s.profiles.map((p) => card(p, s.active.indexOf(p.id), on.length))}`);
   }
 
-  function card(p, active) {
+  // order：在使用中的订阅里排第几（0 是主订阅，-1 没在用）
+  function card(p, order, count) {
+    const active = order >= 0;
+    const primary = order === 0;
     const u = p.userinfo || {};
     const used = (u.upload || 0) + (u.download || 0);
     const pct = u.total ? Math.min(100, (used / u.total) * 100) : 0;
     const expired = u.expire && u.expire * 1000 < Date.now();
-    return html`<div class="card profile ${active ? "active" : ""}" data-action="select" data-id="${p.id}">
+    return html`<div class="card profile ${active ? "active" : ""} ${primary && count > 1 ? "primary" : ""}" data-action="select" data-id="${p.id}">
       <div class="profile-head">
-        <b class="profile-name" title="${p.name}">${p.name}</b>
-        ${active ? html`<span class="badge">使用中</span>` : ""}
+        <b class="profile-name" title="${p.name}">${primary && count > 1 ? html`<span class="star" title="主订阅">★</span>` : ""}${p.name}</b>
+        ${active ? html`<span class="badge">${count > 1 ? (primary ? "主订阅" : "同时使用") : "使用中"}</span>` : ""}
+        <label class="switch" title="${active ? "停用" : "同时使用"}"><input type="checkbox" data-use="${p.id}" ${raw(active ? "checked" : "")} /><span></span></label>
       </div>
-      <div class="muted small">${TYPE_LABEL[p.type] || "订阅"}${p.type === "combo" ? ` · ${p.sources.length} 个来源` : ""}${p.nodes ? ` · ${p.nodes} 个节点` : ""}${p.convert ? " · 已转换" : ""} · 更新于 ${ago(p.updatedAt)}</div>
+      <div class="muted small">${TYPE_LABEL[p.type] || "订阅"}${p.type === "combo" ? ` · ${p.sources.length} 个来源` : p.format && p.format !== "clash" ? ` · ${FORMAT_LABEL[p.format] || p.format}` : ""}${p.nodes ? ` · ${p.nodes} 个节点` : ""}${p.auto ? " · 已自动转换" : p.convert ? " · 已转换" : ""} · 更新于 ${ago(p.updatedAt)}</div>
       ${u.total
         ? html`<div class="usage"><div class="bar"><i style="width:${pct.toFixed(1)}%" class="${pct > 90 ? "bad" : ""}"></i></div>
             <div class="muted small">${bytes(used)} / ${bytes(u.total)}${u.expire ? html` · <span class="${expired ? "bad-text" : ""}">${date(u.expire * 1000)} ${expired ? "已过期" : "到期"}</span>` : ""}</div></div>`
@@ -52,6 +70,8 @@ export default function profiles(root, ctx) {
         ${p.type !== "local"
           ? html`<button class="icon-btn ${p.updating ? "spin" : ""}" data-action="update" data-id="${p.id}" title="更新" ${raw(p.updating ? "disabled" : "")}>${icon("refresh", 16)}</button>`
           : ""}
+        ${active && !primary ? html`<button class="icon-btn" data-action="primary" data-id="${p.id}" title="设为主订阅：分组和规则以它为准">${icon("star", 16)}</button>` : ""}
+        ${active && count > 1 ? html`<button class="icon-btn" data-action="only" data-id="${p.id}" title="只用这一个">${icon("target", 16)}</button>` : ""}
         <button class="icon-btn" data-action="edit" data-id="${p.id}" title="设置">${icon("settings", 16)}</button>
         <button class="icon-btn" data-action="content" data-id="${p.id}" title="编辑配置">${icon("edit", 16)}</button>
         ${p.home ? html`<button class="icon-btn" data-action="home" data-url="${p.home}" title="打开官网">${icon("external", 16)}</button>` : ""}
@@ -64,7 +84,8 @@ export default function profiles(root, ctx) {
   const run = async (fn, ok) => {
     try {
       const r = await fn();
-      if (ok) ctx.toast(typeof ok === "function" ? ok(r) : ok, "success");
+      const text = typeof ok === "function" ? ok(r) : ok;
+      if (text) ctx.toast(text, "success");
       return r;
     } catch (err) {
       ctx.toast(err.message, "error");
@@ -79,23 +100,26 @@ export default function profiles(root, ctx) {
     const btn = e.target.querySelector("[type=submit]");
     btn.disabled = true;
     btn.textContent = "导入中…";
-    const item = await run(() => ctx.invoke("addProfile", { url }), (p) => `已导入「${p.name}」`);
+    const item = await run(() => ctx.invoke("addProfile", { url }), importedText);
     btn.disabled = false;
     btn.innerHTML = html`${icon("plus", 16)}导入`.s;
     if (item) input.value = "";
   });
 
   delegate(root, "click", {
+    // 点没在用的订阅：加入同时使用
     select: (el, e) => {
-      if (e.target.closest("button")) return;
-      if (el.dataset.id !== ctx.state.settings.currentProfile) ctx.set({ currentProfile: el.dataset.id }).catch(() => {});
+      if (e.target.closest("button, label")) return;
+      if (!ctx.state.active.includes(el.dataset.id)) run(() => ctx.invoke("useProfile", el.dataset.id, true));
     },
+    primary: (el) => run(() => ctx.invoke("setPrimary", el.dataset.id), "已设为主订阅"),
+    only: (el) => run(() => ctx.invoke("onlyProfile", el.dataset.id), "现在只用这一个订阅"),
     update: (el) => run(() => ctx.invoke("updateProfile", el.dataset.id), "订阅已更新"),
     "update-all": (el) => {
       el.disabled = true;
       run(() => ctx.invoke("updateAllProfiles"), (failed) => (failed ? `${failed} 个订阅更新失败` : "全部订阅已更新")).finally(() => (el.disabled = false));
     },
-    file: () => run(() => ctx.invoke("importProfileFile")),
+    file: () => run(() => ctx.invoke("importProfileFile"), (p) => (p ? importedText(p) : "")),
     home: (el) => ctx.invoke("openExternal", el.dataset.url),
     remove: async (el) => {
       const p = find(el.dataset.id);
@@ -114,11 +138,12 @@ export default function profiles(root, ctx) {
           ${p.type !== "local"
             ? html`<div class="field-row">
                 <label>自动更新间隔（分钟，0 为不自动更新）<input name="interval" type="number" min="0" value="${p.interval || 0}" /></label>
-                <label>User-Agent（留空使用默认）<input name="ua" value="${p.userAgent || ""}" placeholder="clash.meta/knight" /></label>
+                <label>User-Agent（留空使用默认）<input name="ua" value="${p.userAgent || ""}" placeholder="clash.meta/lily" /></label>
               </div>`
             : ""}
           <h4>订阅转换</h4>
           <label class="checks-inline"><span><input type="checkbox" name="cv-on" ${raw(p.convert ? "checked" : "")} /> 加载时转换这份订阅（原文不变，随时可以关掉）</span></label>
+          ${p.auto ? html`<p class="muted small">这份订阅是${FORMAT_LABEL[p.format] || "节点列表"}，导入时已自动按下面的选项转换；改过选项后就按你的设置来。</p>` : ""}
           ${convertFields(p.convert || {}, ctx.state.convert.templates)}
         </div>`,
         actions: [
@@ -159,6 +184,11 @@ export default function profiles(root, ctx) {
     },
   });
 
+  root.addEventListener("change", (e) => {
+    const id = e.target.dataset.use;
+    if (id) run(() => ctx.invoke("useProfile", id, e.target.checked)).then(render);
+  });
+
   // 拖入配置文件导入
   root.addEventListener("dragover", (e) => {
     e.preventDefault();
@@ -171,7 +201,7 @@ export default function profiles(root, ctx) {
     e.preventDefault();
     root.classList.remove("dragging");
     for (const file of e.dataTransfer.files) {
-      await run(async () => ctx.invoke("importProfile", { name: file.name, text: await file.text() }), `已导入「${file.name}」`);
+      await run(async () => ctx.invoke("importProfile", { name: file.name, text: await file.text() }), importedText);
     }
   });
 

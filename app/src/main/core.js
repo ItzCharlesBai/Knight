@@ -22,7 +22,7 @@ export class Core extends EventEmitter {
     this.coreDir = coreDir;
     this.workDir = workDir;
     this.bin = join(coreDir, binName(id));
-    this.configFile = join(workDir, this.kind === "singbox" ? "config.json" : "config.yaml");
+    this.configFile = join(workDir, this.kind === "clash" ? "config.yaml" : "config.json");
     this.pidFile = join(workDir, "core.pid");
     this.proc = null;
     this.status = "stopped"; // stopped | starting | running | error
@@ -73,12 +73,13 @@ export class Core extends EventEmitter {
 
   runArgs(file = this.configFile) {
     if (this.kind === "singbox") return ["run", "-c", file, "-D", this.workDir, "--disable-color"];
-    if (this.kind === "xray") return ["run", "-c", file];
+    if (this.kind === "xray" || this.kind === "juicity") return ["run", "-c", file];
     return ["-d", this.workDir, "-f", file];
   }
 
   // 校验配置：返回错误信息，没问题返回空字符串
   async test(file) {
+    if (this.kind === "juicity") return ""; // Juicity 没有校验配置的命令，配置由本应用生成
     const args =
       this.kind === "singbox" ? ["check", "-c", file, "-D", this.workDir, "--disable-color"] : this.kind === "xray" ? ["run", "-test", "-c", file] : ["-t", "-d", this.workDir, "-f", file];
     const isError = (l) => (this.kind === "singbox" ? /\b(FATAL|ERROR)\b/.test(l) : this.kind === "xray" ? /fail|error|panic/i.test(l) : /level=(error|fatal)/.test(l));
@@ -106,7 +107,7 @@ export class Core extends EventEmitter {
         if (!line.trim()) continue;
         this.output.push(line);
         if (this.output.length > 500) this.output.shift();
-        if (this.kind === "singbox" ? /\bFATAL\b/.test(line) : this.kind === "xray" ? /Failed to start|panic/.test(line) : /level=fatal/.test(line)) this.error = cleanLog(line);
+        if (this.kind === "singbox" ? /\bFATAL\b/.test(line) : this.kind === "xray" || this.kind === "juicity" ? /Failed to start|panic|level=fatal|FATA/.test(line) : /level=fatal/.test(line)) this.error = cleanLog(line);
       }
     };
     proc.stdout.on("data", onData);

@@ -70,8 +70,7 @@ export default function home(root, ctx) {
   function renderNode() {
     const s = ctx.state;
     const el = $("h-node");
-    const profile = s.profiles.find((p) => p.id === s.settings.currentProfile);
-    if (!profile) {
+    if (!s.active.length) {
       return patch(el, html`<div class="card-title" data-en="Current node">当前节点</div><div class="empty small">还没有订阅<button class="btn primary sm" data-action="go" data-page="profiles">${icon("plus", 16)}添加订阅</button></div>`);
     }
     if (s.settings.mode === "direct") return patch(el, html`<div class="card-title" data-en="Current node">当前节点</div><div class="big-name">直连</div><div class="muted small">直连模式下所有流量都不走代理</div>`);
@@ -147,24 +146,30 @@ export default function home(root, ctx) {
     );
   }
 
+  // 在用的订阅：主订阅在前，每个一行（名字、用量、更新）
   function renderSub() {
     const s = ctx.state;
-    const p = s.profiles.find((x) => x.id === s.settings.currentProfile);
-    if (!p) return patch($("h-sub"), html`<div class="card-title" data-en="Subscription">订阅</div><div class="muted small">还没有订阅</div>`);
-    const u = p.userinfo || {};
-    const used = (u.upload || 0) + (u.download || 0);
-    const pct = u.total ? Math.min(100, (used / u.total) * 100) : 0;
+    const list = s.active.map((id) => s.profiles.find((x) => x.id === id)).filter(Boolean);
+    const head = html`<div class="card-title" data-en="Subscriptions">订阅<button class="link" data-action="go" data-page="profiles">管理${icon("chevron", 14)}</button></div>`;
+    if (!list.length) return patch($("h-sub"), html`${head}<div class="muted small">${s.profiles.length ? "没有在用的订阅，打开订阅的开关即可使用" : "还没有订阅"}</div>`);
+    const row = (p, i) => {
+      const u = p.userinfo || {};
+      const used = (u.upload || 0) + (u.download || 0);
+      const pct = u.total ? Math.min(100, (used / u.total) * 100) : 0;
+      return html`<div class="sub-row">
+        <div class="sub-line"><b class="sub-name" title="${p.name}">${i === 0 && list.length > 1 ? html`<span class="star">★</span>` : ""}${p.name}</b>
+          ${p.type !== "local" ? html`<button class="icon-btn sm ${p.updating ? "spin" : ""}" data-action="update" data-id="${p.id}" title="更新" ${raw(p.updating ? "disabled" : "")}>${icon("refresh", 14)}</button>` : ""}</div>
+        ${u.total
+          ? html`<div class="bar"><i style="width:${pct.toFixed(1)}%" class="${pct > 90 ? "bad" : ""}"></i></div>
+              <div class="muted small">${bytes(used)} / ${bytes(u.total)}${u.expire ? " · " + date(u.expire * 1000) + " 到期" : ""}</div>`
+          : html`<div class="muted small">${p.type === "local" ? "本地配置" : p.type === "combo" ? "组合订阅" : "订阅没有提供流量信息"}${p.nodes ? ` · ${p.nodes} 个节点` : ""}</div>`}
+      </div>`;
+    };
     patch(
       $("h-sub"),
-      html`<div class="card-title" data-en="Subscription">订阅<button class="link" data-action="go" data-page="profiles">管理${icon("chevron", 14)}</button></div>
-        <div class="big-name small-name">${p.name}</div>
-        ${u.total
-          ? html`<div class="usage"><div class="bar"><i style="width:${pct.toFixed(1)}%" class="${pct > 90 ? "bad" : ""}"></i></div>
-              <div class="muted small">已用 ${bytes(used)} / ${bytes(u.total)}${u.expire ? " · " + date(u.expire * 1000) + " 到期" : ""}</div></div>`
-          : html`<div class="muted small">${p.type === "local" ? "本地配置" : "订阅没有提供流量信息"}</div>`}
-        ${p.type === "remote"
-          ? html`<div class="row-actions"><button class="btn sm" data-action="update" data-id="${p.id}" ${raw(p.updating ? "disabled" : "")}>${icon("refresh", 14)}${p.updating ? "更新中…" : "更新订阅"}</button></div>`
-          : ""}`
+      html`${head}${list.length > 1 ? html`<div class="muted small sub-note">${list.length} 个订阅同时使用 · ★ 主订阅提供分组和规则</div>` : ""}
+        <div class="sub-list">${list.slice(0, 4).map(row)}</div>
+        ${list.length > 4 ? html`<div class="muted small">还有 ${list.length - 4} 个……</div>` : ""}`
     );
   }
 
