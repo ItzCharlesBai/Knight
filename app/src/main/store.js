@@ -68,7 +68,7 @@ export const DEFAULTS = {
   silentStart: false,
   closeToTray: true,
   theme: "mist", // 窗外的天气：mist 晨雾（默认）| rain 细雨 | sun 晴光，都是浅色
-  font: "serif", // 字体：serif 宋体（思源宋体，明朝体风格，默认）| sans 系统黑体
+  font: "sans", // 字体：sans 思源黑体（随应用打包，默认）| system 系统字体（微软雅黑 / 苹方）
   motion: true, // 动态效果：光束、雾、微尘、细雨和操作时的光点
   githubMirror: "",
   updateViaProxy: false,

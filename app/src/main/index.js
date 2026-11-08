@@ -428,7 +428,9 @@ function main() {
       const fetchFn = (url) => httpFetch(url, { viaProxy: core.status === "running", signal: AbortSignal.timeout(300000) });
       let version = SINGBOX_SERVER_VERSION;
       try {
-        version = (await latestVersion({ id: "sing-box", fetch: fetchFn, mirror })).replace(/^v/, "");
+        // 只是顺便查一下最新版本：试一次、最多等 15 秒，GitHub 不通就直接用内置的版本号
+        const quick = (url) => httpFetch(url, { viaProxy: core.status === "running", signal: AbortSignal.timeout(15000) });
+        version = (await latestVersion({ id: "sing-box", fetch: quick, mirror, tries: 1 })).replace(/^v/, "");
       } catch {
         /* 拿不到最新版本号就用内置的 */
       }
@@ -910,7 +912,7 @@ function main() {
       title: "Ondine",
       icon: join(resourcesDir, "icons", process.platform === "win32" ? "icon.ico" : "icon.png"),
       autoHideMenuBar: true,
-      backgroundColor: { rain: "#eae8e1", sun: "#f5efe0" }[settings().theme] || "#f2ecdc",
+      backgroundColor: { rain: "#f6f6f3", sun: "#fcfaf4" }[settings().theme] || "#faf8f3",
       webPreferences: { preload: join(here, "..", "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
     win.removeMenu();

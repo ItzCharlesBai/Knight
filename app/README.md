@@ -8,8 +8,8 @@ Ondine 是一个桌面代理客户端，支持 Windows、macOS 和 Linux。主�
 - **VPS 管理和一键部署**。
 
 - **界面**：日式的简约，加一点电影海报的版式和文艺感。
-  - 米黄（生成り）的纸、墨色的字，只用一种朱红点睛；面板半透明，圆角是 Apple / 三星那样的连续曲率。
-  - 字是明朝体风格的思源宋体（简体），英文和数字用 Garamond（都随应用打包，SIL OFL）；不喜欢宋体可以在「设置 → 应用 → 字体」换成系统黑体。
+  - 很淡的米白、墨色的字，只用一种朱红点睛；面板半透明，圆角是 Apple / 三星那样的连续曲率。
+  - 中文是方正的思源黑体（随应用打包，SIL OFL），英文和数字用系统字体（Segoe UI / SF），「Ondine」字标是 Garamond 斜体；「设置 → 应用 → 字体」可以换成系统字体（微软雅黑 / 苹方）。
   - 每一页的页头像一张小海报：一行编号小字（Nº 01 · OVERVIEW）、大大的片名、右边留白里一行竖排的短诗、背后一个很淡的大字。
   - 光影收得很轻：窗外照进来的一点光、薄雾和微尘，下雨天有细雨，压着一层胶片颗粒；点按钮时冒一小簇墨色的光点。
   - 窗外的天气：晨雾（默认）、细雨、晴光（墙上有窗光和叶影），都是浅色；「设置 → 动态效果」可以关掉动画。
@@ -285,7 +285,7 @@ npm run dist:linux   # Linux AppImage / deb
 
 下载内核时需要代理的话，用 `NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:7897 npm run core`，或者加上 `--mirror https://ghfast.top/` 走 GitHub 加速。
 
-图标、字体和背景素材由脚本生成：`node scripts/icons.mjs`（应用图标、Windows 的 ico、macOS 的 icns、Linux 各尺寸和托盘图标，需要 playwright）、`node scripts/fonts.mjs`（从 npm 取思源宋体和 EB Garamond）、`node scripts/art.mjs`。
+图标、字体和背景素材由脚本生成：`node scripts/icons.mjs`（应用图标、Windows 的 ico、macOS 的 icns、Linux 各尺寸和托盘图标，需要 playwright）、`node scripts/fonts.mjs`（从 npm 取思源黑体和 EB Garamond）、`node scripts/art.mjs`。
 
 应用以前叫 Knight、Lily、Chelle：第一次以 Ondine 启动时，会把最近用过的那个的设置、订阅、服务器和内核自动搬过来。
 

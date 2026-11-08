@@ -244,6 +244,11 @@ test("下载内核：GitHub 临时回 5xx 或断网时重试，404 不重试", a
     const missing = async () => (n++, new Response("not found", { status: 404 }));
     await assert.rejects(latestVersion({ id: "mihomo", fetch: missing }), /下载失败 404/);
     assert.equal(n, 1);
+    // 只是顺便查版本号（tries: 1）：失败一次就交给调用方用备用值
+    let q = 0;
+    const flaky = async () => (q++, new Response("", { status: 504 }));
+    await assert.rejects(latestVersion({ id: "mihomo", fetch: flaky, tries: 1 }), /下载失败 504/);
+    assert.equal(q, 1);
     // 一直失败：试满次数后把最后一次的结果交出去
     let m = 0;
     const down = async () => (m++, new Response("", { status: 503 }));

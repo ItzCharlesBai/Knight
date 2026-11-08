@@ -1,7 +1,7 @@
-// 字体：思源宋体（Noto Serif SC，明朝体 / 宋体风格的简体中文，可变字重 200–900）+ EB Garamond（英文和数字，可变字重 400–800，含斜体）
+// 字体：思源黑体（Noto Sans SC，方正的简体中文黑体，可变字重 100–900）+ EB Garamond 斜体（只用在「Ondine」字标上）
 // 都是 SIL Open Font License 1.1。从 npm 上的 @fontsource-variable 包取按 Unicode 分片的 woff2：界面用到哪些字，才加载哪些片
 //   node scripts/fonts.mjs   → 重新生成 src/renderer/fonts/
-// 宋体里有一些 emoji 码位（旗帜、符号）的单色字形，会盖掉彩色 emoji：从 unicode-range 里去掉这些码位，让它们落到系统的 emoji 字体上
+// 思源黑体里有一些 emoji 码位（旗帜、符号）的单色字形，会盖掉彩色 emoji：从 unicode-range 里去掉这些码位，让它们落到系统的 emoji 字体上
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -59,14 +59,14 @@ function build(pkg, family, dir, pick, filter = (r) => r) {
     });
 }
 
-const garamond = build(unpack("@fontsource-variable/eb-garamond@5.3.0"), "EB Garamond Variable", "eb-garamond", { italic: true, file: (f) => /-latin(-ext)?-wght-/.test(f) });
-const serif = build(unpack("@fontsource-variable/noto-serif-sc@5.3.1"), "Noto Serif SC Variable", "noto-serif-sc", { file: () => true }, withoutEmoji);
+const garamond = build(unpack("@fontsource-variable/eb-garamond@5.3.0"), "EB Garamond Variable", "eb-garamond", { italic: true, file: (f) => /-latin(-ext)?-wght-italic/.test(f) });
+const sans = build(unpack("@fontsource-variable/noto-sans-sc@5.3.1"), "Noto Sans SC Variable", "noto-sans-sc", { file: () => true }, withoutEmoji);
 writeFileSync(
   join(out, "fonts.css"),
-  `/* 字体：EB Garamond（英文、数字）和思源宋体 Noto Serif SC（中文，明朝体风格），均为 SIL Open Font License 1.1，见各目录的 OFL.txt。
-   由 scripts/fonts.mjs 生成；宋体去掉了 emoji 码位，让旗帜和符号用系统的彩色 emoji */
-${[...garamond, ...serif].join("\n")}
+  `/* 字体：思源黑体 Noto Sans SC（中文）和 EB Garamond 斜体（「Ondine」字标），均为 SIL Open Font License 1.1，见各目录的 OFL.txt。
+   由 scripts/fonts.mjs 生成；思源黑体去掉了 emoji 码位，让旗帜和符号用系统的彩色 emoji */
+${[...garamond, ...sans].join("\n")}
 `
 );
 rmSync(tmp, { recursive: true, force: true });
-console.log(`fonts: ${garamond.length} Garamond faces, ${serif.length} serif faces`);
+console.log(`fonts: ${garamond.length} Garamond faces, ${sans.length} sans faces`);
