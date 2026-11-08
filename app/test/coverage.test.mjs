@@ -239,16 +239,16 @@ test("下载内核：GitHub 临时回 5xx 或断网时重试，404 不重试", a
     };
     assert.equal(await latestVersion({ id: "mihomo", fetch: fakeFetch }), "v1.19.33");
     assert.equal(calls.length, 3);
-    // 真正的 404（文件不存在）不重试：version.txt 和备用的 /releases/latest 各问一次，报原来的错
+    // 真正的 404（文件不存在）不重试：version.txt、备用的 /releases/latest 和 API 各问一次，报原来的错
     let n = 0;
     const missing = async () => (n++, new Response("not found", { status: 404 }));
     await assert.rejects(latestVersion({ id: "mihomo", fetch: missing }), /下载失败 404/);
-    assert.equal(n, 2);
+    assert.equal(n, 3);
     // 只是顺便查版本号（tries: 1）：失败一次就交给调用方用备用值
     let q = 0;
     const flaky = async () => (q++, new Response("", { status: 504 }));
     await assert.rejects(latestVersion({ id: "mihomo", fetch: flaky, tries: 1 }), /下载失败 504/);
-    assert.equal(q, 2); // version.txt 一次、备用的 /releases/latest 一次，都不重试
+    assert.equal(q, 3); // version.txt、/releases/latest、API 各一次，都不重试
     // version.txt 一直 504（CI 里 macOS 打包遇到过）：稳定版改从 /releases/latest 的跳转里读版本号
     const seen = [];
     const assetDown = async (url) => {
@@ -261,6 +261,18 @@ test("下载内核：GitHub 临时回 5xx 或断网时重试，404 不重试", a
     assert.ok(seen.at(-1).endsWith("/releases/latest"));
     // 指定了标签的预览版（Alpha）没有别的办法拿版本号：照常报错
     await assert.rejects(latestVersion({ id: "mihomo-alpha", fetch: assetDown }), /下载失败 504/);
+    // 网页跳转也 504（CI 里 sing-box 遇到过）：问 GitHub API
+    const viaApi = async (url) => (url.startsWith("https://api.github.com/") ? Response.json({ tag_name: "v1.14.5" }) : new Response("", { status: 504 }));
+    assert.equal(await latestVersion({ id: "sing-box", fetch: viaApi }), "v1.14.5");
+    // 连接挂住不响应：等 headerTimeout 就放弃这一次，再试一次就好了
+    retry.headerTimeout = 30;
+    let hung = 0;
+    const hangOnce = (url, opts) => {
+      if (hung++ === 0) return new Promise((_, reject) => opts.signal.addEventListener("abort", () => reject(opts.signal.reason)));
+      return Promise.resolve(new Response("v1.19.33", { status: 200 }));
+    };
+    assert.equal(await latestVersion({ id: "mihomo", fetch: hangOnce }), "v1.19.33");
+    assert.equal(hung, 2);
     // 一直失败：试满次数后把最后一次的结果交出去
     let m = 0;
     const down = async () => (m++, new Response("", { status: 503 }));

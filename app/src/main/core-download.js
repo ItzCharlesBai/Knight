@@ -87,25 +87,49 @@ export function assetName(version, platform = process.platform, arch = process.a
 export const withMirror = (url, mirror) => (mirror ? mirror.replace(/\/?$/, "/") + url : url);
 const releases = (id) => `https://github.com/${CORES[id].repo}/releases`;
 
-// GitHub 偶尔会回 5xx、429，或者连接中途断开：等一会儿再试，最多四次（等 2、5、10 秒）
+// GitHub 偶尔会回 5xx、429，或者连接中途断开、挂住不响应：等一会儿再试，最多四次（等 2、5、10 秒）
 const TRANSIENT = new Set([408, 425, 429, 500, 502, 503, 504]);
-export const retry = { tries: 4, wait: (attempt) => [2000, 5000, 10000][attempt - 1] || 10000 };
+export const retry = { tries: 4, wait: (attempt) => [2000, 5000, 10000][attempt - 1] || 10000, headerTimeout: 30000 };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 一次请求：headerTimeout 内没收到响应头就放弃这一次，交给外面重试（连接挂住时 fetch 默认要等 5 分钟）
+async function once(fetchFn, url, options = {}) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(new Error(`等待响应超时：${url}`)), retry.headerTimeout);
+  try {
+    return await fetchFn(url, { ...options, signal: options.signal ? AbortSignal.any([options.signal, ctl.signal]) : ctl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function fetchRetry(fetchFn, url, options, tries = retry.tries) {
   for (let attempt = 1; ; attempt++) {
     try {
-      const res = await fetchFn(url, options);
+      const res = await once(fetchFn, url, options);
       if (!TRANSIENT.has(res.status) || attempt >= tries) return res;
     } catch (err) {
       if (attempt >= tries) throw err;
     }
-    await new Promise((r) => setTimeout(r, retry.wait(attempt)));
+    await sleep(retry.wait(attempt));
   }
 }
 
-async function get(fetchFn, url, tries) {
-  const res = await fetchRetry(fetchFn, url, { redirect: "follow" }, tries);
-  if (!res.ok) throw new Error(`下载失败 ${res.status}：${url}`);
-  return Buffer.from(await res.arrayBuffer());
+// 下载文件：内容读到一半断了也算一次失败，一起重试
+async function get(fetchFn, url, tries = retry.tries) {
+  for (let attempt = 1; ; attempt++) {
+    let res;
+    try {
+      res = await once(fetchFn, url, { redirect: "follow" });
+      if (res.ok) return Buffer.from(await res.arrayBuffer());
+    } catch (err) {
+      if (attempt >= tries) throw err;
+      await sleep(retry.wait(attempt));
+      continue;
+    }
+    if (!TRANSIENT.has(res.status) || attempt >= tries) throw new Error(`下载失败 ${res.status}：${url}`);
+    await sleep(retry.wait(attempt));
+  }
 }
 
 // tries：只是顺便查一下版本号、查不到有备用值的地方传 1，不必等重试
@@ -136,12 +160,22 @@ export async function latestVersion({ id = "mihomo", fetch: fetchFn = fetch, mir
   return latestFromRedirect(id, fetchFn, mirror, tries);
 }
 
-// /releases/latest 会跳转到 /releases/tag/v1.x.y：从跳转后的地址（或页面里的链接）读版本号
+// /releases/latest 会跳转到 /releases/tag/v1.x.y：从跳转后的地址（或页面里的链接）读版本号；
+// 网页也打不开时再问 GitHub API（另一套服务）。CI 里设了 ONDINE_GITHUB_TOKEN 就带上，不容易被限流
 async function latestFromRedirect(id, fetchFn, mirror, tries) {
-  const res = await fetchRetry(fetchFn, withMirror(`${releases(id)}/latest`, mirror), { redirect: "follow" }, tries);
-  const tag = /\/releases\/tag\/(v\d+\.\d+\.\d+)(?:$|[?#])/.exec(res.url || "") || /\/releases\/tag\/(v\d+\.\d+\.\d+)"/.exec(await res.text());
-  if (!tag) throw new Error(`无法获取 ${CORES[id].label} 最新版本号`);
-  return tag[1];
+  try {
+    const res = await fetchRetry(fetchFn, withMirror(`${releases(id)}/latest`, mirror), { redirect: "follow" }, tries);
+    const tag = /\/releases\/tag\/(v\d+\.\d+\.\d+)(?:$|[?#])/.exec(res.url || "") || (res.ok && /\/releases\/tag\/(v\d+\.\d+\.\d+)"/.exec(await res.text()));
+    if (tag) return tag[1];
+  } catch {
+    /* 下面问 API */
+  }
+  const token = globalThis.process?.env?.ONDINE_GITHUB_TOKEN;
+  const headers = { Accept: "application/vnd.github+json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  const res = await fetchRetry(fetchFn, `https://api.github.com/repos/${CORES[id].repo}/releases/latest`, { headers }, tries);
+  const tag = res.ok ? (await res.json()).tag_name : "";
+  if (!/^v\d+\.\d+\.\d+$/.test(tag || "")) throw new Error(`无法获取 ${CORES[id].label} 最新版本号`);
+  return tag;
 }
 
 // 返回 { version, files: [{ name, data }] }，第一个是内核本身（sing-box 在 Linux / Windows 上还带 libcronet）

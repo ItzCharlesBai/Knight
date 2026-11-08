@@ -55,6 +55,7 @@ jobs:
         working-directory: app
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1" # 单元测试用不到 Electron 本体，少一次从 GitHub 下载
+          ONDINE_GITHUB_TOKEN: ${{ github.token }} # 下载内核时查版本号的最后一招是 GitHub API，带上只读的令牌不容易被限流
         run: |
           npm ci
           node scripts/fetch-core.mjs
@@ -91,6 +92,7 @@ jobs:
         run: npm run dist:${{ matrix.target }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false" # 没有签名证书时跳过签名
+          ONDINE_GITHUB_TOKEN: ${{ github.token }}
       - uses: actions/upload-artifact@v4
         with:
           name: ondine-${{ matrix.target }}
