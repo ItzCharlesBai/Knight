@@ -114,9 +114,15 @@ export async function latestVersion({ id = "mihomo", fetch: fetchFn = fetch, mir
   if (!spec) throw new Error("未知内核：" + id);
   if (spec.kind === "clash") {
     const url = spec.tag ? `${releases(id)}/download/${spec.tag}/version.txt` : `${releases(id)}/latest/download/version.txt`;
-    const text = (await get(fetchFn, withMirror(url, mirror), tries)).toString("utf8").trim();
-    if (!/^(v\d+\.\d+\.\d+|alpha-[\w-]+)$/.test(text)) throw new Error("无法识别内核版本号：" + text.slice(0, 40));
-    return text;
+    try {
+      const text = (await get(fetchFn, withMirror(url, mirror), tries)).toString("utf8").trim();
+      if (!/^(v\d+\.\d+\.\d+|alpha-[\w-]+)$/.test(text)) throw new Error("无法识别内核版本号：" + text.slice(0, 40));
+      return text;
+    } catch (err) {
+      // version.txt 下载不了（GitHub 的文件服务出问题时会这样）：稳定版改从 /releases/latest 的跳转里读版本号
+      if (spec.tag) throw err;
+      return latestFromRedirect(id, fetchFn, mirror, tries).catch(() => Promise.reject(err));
+    }
   }
   // 预发布版：从发布列表里取最新的一个预发布
   if (spec.prerelease) {
@@ -126,10 +132,15 @@ export async function latestVersion({ id = "mihomo", fetch: fetchFn = fetch, mir
     if (!pre) throw new Error(`暂时没有 ${spec.label}`);
     return pre.tag_name;
   }
-  // sing-box、Xray 没有 version.txt：/releases/latest 会跳转到 /releases/tag/v1.x.y
+  // sing-box、Xray 没有 version.txt
+  return latestFromRedirect(id, fetchFn, mirror, tries);
+}
+
+// /releases/latest 会跳转到 /releases/tag/v1.x.y：从跳转后的地址（或页面里的链接）读版本号
+async function latestFromRedirect(id, fetchFn, mirror, tries) {
   const res = await fetchRetry(fetchFn, withMirror(`${releases(id)}/latest`, mirror), { redirect: "follow" }, tries);
   const tag = /\/releases\/tag\/(v\d+\.\d+\.\d+)(?:$|[?#])/.exec(res.url || "") || /\/releases\/tag\/(v\d+\.\d+\.\d+)"/.exec(await res.text());
-  if (!tag) throw new Error(`无法获取 ${spec.label} 最新版本号`);
+  if (!tag) throw new Error(`无法获取 ${CORES[id].label} 最新版本号`);
   return tag[1];
 }
 

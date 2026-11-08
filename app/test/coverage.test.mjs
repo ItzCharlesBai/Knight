@@ -239,16 +239,28 @@ test("下载内核：GitHub 临时回 5xx 或断网时重试，404 不重试", a
     };
     assert.equal(await latestVersion({ id: "mihomo", fetch: fakeFetch }), "v1.19.33");
     assert.equal(calls.length, 3);
-    // 真正的 404（文件不存在）不重试，直接报错
+    // 真正的 404（文件不存在）不重试：version.txt 和备用的 /releases/latest 各问一次，报原来的错
     let n = 0;
     const missing = async () => (n++, new Response("not found", { status: 404 }));
     await assert.rejects(latestVersion({ id: "mihomo", fetch: missing }), /下载失败 404/);
-    assert.equal(n, 1);
+    assert.equal(n, 2);
     // 只是顺便查版本号（tries: 1）：失败一次就交给调用方用备用值
     let q = 0;
     const flaky = async () => (q++, new Response("", { status: 504 }));
     await assert.rejects(latestVersion({ id: "mihomo", fetch: flaky, tries: 1 }), /下载失败 504/);
-    assert.equal(q, 1);
+    assert.equal(q, 2); // version.txt 一次、备用的 /releases/latest 一次，都不重试
+    // version.txt 一直 504（CI 里 macOS 打包遇到过）：稳定版改从 /releases/latest 的跳转里读版本号
+    const seen = [];
+    const assetDown = async (url) => {
+      seen.push(url);
+      if (url.endsWith("/version.txt")) return new Response("", { status: 504 });
+      return new Response('<a href="/MetaCubeX/mihomo/releases/tag/v1.19.34">v1.19.34</a>', { status: 200 });
+    };
+    assert.equal(await latestVersion({ id: "mihomo", fetch: assetDown }), "v1.19.34");
+    assert.equal(seen.filter((u) => u.endsWith("/version.txt")).length, retry.tries);
+    assert.ok(seen.at(-1).endsWith("/releases/latest"));
+    // 指定了标签的预览版（Alpha）没有别的办法拿版本号：照常报错
+    await assert.rejects(latestVersion({ id: "mihomo-alpha", fetch: assetDown }), /下载失败 504/);
     // 一直失败：试满次数后把最后一次的结果交出去
     let m = 0;
     const down = async () => (m++, new Response("", { status: 503 }));
