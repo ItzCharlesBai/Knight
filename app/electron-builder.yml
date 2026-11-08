@@ -29,6 +29,8 @@ extraResources:
     to: extensions
     filter: ["script.js", "merge.yaml"]
 asar: true
+# 只带中文和英文的 Chromium 语言包，安装包小 6 MB 左右
+electronLanguages: [zh-CN, zh-TW, en-US]
 publish: null
 # 图标由 scripts/icons.mjs 生成：小尺寸的线条单独加粗，任务栏、Finder 列表里也看得清
 icon: resources/icons/icon.png

@@ -209,6 +209,10 @@ export default function settings(root, ctx) {
         ${sw("autoLaunch", "开机启动", "")}
         ${sw("silentStart", "静默启动", "启动时不打开窗口，只在托盘显示")}
         ${sw("closeToTray", "关闭窗口时留在托盘", "关闭后内核继续运行；从托盘菜单退出")}
+        ${select("font", "字体", "宋体是明朝体风格的思源宋体，随应用打包；黑体用系统自带的字体", [
+          ["serif", "宋体（默认）"],
+          ["sans", "黑体"],
+        ])}
         ${select("theme", "窗外的天气", "界面背景的光影：晨雾里的光束、细雨、或者晴天落在墙上的窗光和叶影", [
           ["mist", "晨雾（默认）"],
           ["rain", "细雨"],

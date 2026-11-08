@@ -12,17 +12,17 @@ import rules from "./pages/rules.js";
 import logs from "./pages/logs.js";
 import settings from "./pages/settings.js";
 
-// [名字, 中文, 图标, 页面, 英文（页头小字）]
+// [名字, 中文, 图标, 页面, 英文（页头小字）, 页头背后的大字, 右边竖排的短诗]
 const PAGES = [
-  ["home", "概览", "home", home, "Overview"],
-  ["proxies", "代理", "globe", proxies, "Proxies"],
-  ["profiles", "订阅", "layers", profiles, "Subscriptions"],
-  ["convert", "转换", "shuffle", convert, "Conversion"],
-  ["servers", "服务器", "server", servers, "Servers"],
-  ["connections", "连接", "link", connections, "Connections"],
-  ["rules", "规则", "list", rules, "Rules"],
-  ["logs", "日志", "terminal", logs, "Journal"],
-  ["settings", "设置", "settings", settings, "Preferences"],
+  ["home", "概览", "home", home, "Overview", "风", "今天的风，从哪里吹来"],
+  ["proxies", "代理", "globe", proxies, "Proxies", "路", "选一条路，去看远方"],
+  ["profiles", "订阅", "layers", profiles, "Subscriptions", "集", "把远方的地址，收在一起"],
+  ["convert", "转换", "shuffle", convert, "Conversion", "译", "换一种说法，说同一件事"],
+  ["servers", "服务器", "server", servers, "Servers", "灯", "在远方，留一盏自己的灯"],
+  ["connections", "连接", "link", connections, "Connections", "流", "此刻，正在路上的每一句话"],
+  ["rules", "规则", "list", rules, "Rules", "界", "去哪里，交给规则安排"],
+  ["logs", "日志", "terminal", logs, "Journal", "记", "安静地，记下每一件小事"],
+  ["settings", "设置", "settings", settings, "Preferences", "随", "一切，随你的心意"],
 ];
 
 const listeners = { state: new Set(), traffic: new Set(), log: new Set(), visible: new Set(), vps: new Set() };
@@ -78,7 +78,7 @@ function go(name, anchor) {
   const root = old.cloneNode(false);
   old.replaceWith(root);
   current = entry[3](root, ctx) || {};
-  addKicker(root, PAGES.indexOf(entry) + 1, entry[4]);
+  posterHead(root, PAGES.indexOf(entry) + 1, entry);
   renderNav();
   if (anchor) setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: "start" }), 50);
   try {
@@ -88,22 +88,28 @@ function go(name, anchor) {
   }
 }
 
-// 页头像电影海报：一行演职员表式的小字（Nº III · ONDINE PRESENTS · SUBSCRIPTIONS），片名后面压一个大大的花体词
-const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
-function addKicker(root, index, english) {
-  const h1 = root.querySelector(".page-head h1");
+// 页头像一张小海报：编号小字（Nº 01 · OVERVIEW）、片名、右边留白里一行竖排的短诗、背后一个很淡的大字
+function posterHead(root, index, [, , , , english, mark, poem]) {
+  const head = root.querySelector(".page-head");
+  const h1 = head && head.querySelector("h1");
   if (!h1) return;
   const block = document.createElement("div");
   block.className = "title-block";
   const kicker = document.createElement("div");
   kicker.className = "kicker";
-  kicker.textContent = `Nº ${ROMAN[index - 1] || index} · Ondine presents · ${english}`;
-  const word = document.createElement("div");
-  word.className = "poster-word";
-  word.setAttribute("aria-hidden", "true");
-  word.textContent = english;
+  kicker.textContent = `Nº ${String(index).padStart(2, "0")} · ${english}`;
   h1.replaceWith(block);
-  block.append(word, kicker, h1);
+  block.append(kicker, h1);
+  const big = document.createElement("div");
+  big.className = "poster-mark";
+  big.setAttribute("aria-hidden", "true");
+  big.textContent = mark;
+  const verse = document.createElement("p");
+  verse.className = "poem";
+  verse.setAttribute("aria-hidden", "true");
+  verse.textContent = poem;
+  head.prepend(big);
+  head.append(verse);
 }
 
 function renderTraffic() {
@@ -175,9 +181,10 @@ const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
 let lastLook = "";
 // 天气写在根元素上；动态效果关掉、系统要求减少动画、窗口藏起来时都停下
 function applyTheme() {
-  const { theme, motion } = ctx.state.settings;
+  const { theme, motion, font } = ctx.state.settings;
   const moving = motion && !reduced.matches;
   document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.font = font;
   document.documentElement.classList.toggle("still", !moving);
   burst.enabled = moving;
   const look = theme + moving + document.hidden;

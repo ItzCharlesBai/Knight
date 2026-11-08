@@ -1,15 +1,15 @@
 // 氛围与交互动画：
-//   场景（铺在最底下的画布）：右上方咖啡馆窗外照进来的丁达尔光束、贴着地面慢慢飘的晨雾、光里浮动的微尘和偶尔一闪的星光、细雨
+//   场景（铺在最底下的画布）：右上方窗外照进来的丁达尔光束、贴着地面慢慢飘的晨雾、光里浮动的微尘和偶尔一闪的星光、细雨
 //   粒子（盖在最上面的画布，不挡点击）：点按钮、拨开关、切页面时的一小簇光点
 // 窗口藏起来、关了「动态效果」或者系统要求减少动画时不跑，只画一帧静止的画面
 const TAU = Math.PI * 2;
 const rand = (a, b) => a + Math.random() * (b - a);
 
-// 天气：光束、雾、微尘、雨的强度
+// 天气：光束、雾、微尘、雨的强度（日式的简约：都收得很轻）
 const WEATHER = {
-  mist: { rays: 0.9, fog: 1, motes: 70, sparkles: 1, rain: 0, tint: [255, 254, 246] },
-  rain: { rays: 0.45, fog: 0.85, motes: 26, sparkles: 0.4, rain: 110, tint: [246, 250, 250] },
-  sun: { rays: 1.25, fog: 0.35, motes: 90, sparkles: 1.4, rain: 0, tint: [255, 253, 238] },
+  mist: { rays: 0.75, fog: 0.85, motes: 54, sparkles: 0.6, rain: 0, tint: [255, 253, 244] },
+  rain: { rays: 0.35, fog: 0.75, motes: 20, sparkles: 0.2, rain: 90, tint: [246, 249, 250] },
+  sun: { rays: 1.05, fog: 0.3, motes: 70, sparkles: 0.9, rain: 0, tint: [255, 252, 236] },
 };
 
 // 发光的小点：预先画好，绘制时直接贴图
@@ -260,12 +260,13 @@ export function createScene(canvas) {
 }
 
 // ---------------- 交互的粒子 ----------------
+// 墨色的小点，偶尔一粒朱红；成功是緑青色，失败是暗红
 const KINDS = {
-  tap: { n: 7, speed: [0.04, 0.12], life: [380, 620], size: [1.2, 2.6], stars: 0.2, rgb: "122,128,86" },
-  big: { n: 16, speed: [0.06, 0.2], life: [520, 900], size: [1.4, 3.2], stars: 0.45, rgb: "112,118,74" },
-  on: { n: 14, speed: [0.05, 0.16], life: [500, 850], size: [1.4, 3], stars: 0.55, rgb: "131,138,86" },
-  success: { n: 18, speed: [0.05, 0.18], life: [600, 1000], size: [1.4, 3.4], stars: 0.6, rgb: "104,122,70" },
-  error: { n: 8, speed: [0.03, 0.08], life: [420, 700], size: [1.2, 2.4], stars: 0, rgb: "160,92,78" },
+  tap: { n: 6, speed: [0.04, 0.11], life: [360, 600], size: [1.1, 2.3], stars: 0.12, rgb: "60,57,51" },
+  big: { n: 13, speed: [0.06, 0.18], life: [500, 860], size: [1.3, 2.9], stars: 0.3, rgb: "194,69,45" },
+  on: { n: 11, speed: [0.05, 0.15], life: [480, 820], size: [1.3, 2.7], stars: 0.35, rgb: "60,57,51" },
+  success: { n: 15, speed: [0.05, 0.17], life: [560, 960], size: [1.3, 3.1], stars: 0.4, rgb: "77,122,90" },
+  error: { n: 7, speed: [0.03, 0.08], life: [400, 680], size: [1.1, 2.2], stars: 0, rgb: "178,58,44" },
 };
 
 export function createBurst(canvas) {

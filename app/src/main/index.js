@@ -910,7 +910,7 @@ function main() {
       title: "Ondine",
       icon: join(resourcesDir, "icons", process.platform === "win32" ? "icon.ico" : "icon.png"),
       autoHideMenuBar: true,
-      backgroundColor: settings().theme === "rain" ? "#e4e2da" : "#ebe6da",
+      backgroundColor: { rain: "#eae8e1", sun: "#f5efe0" }[settings().theme] || "#f2ecdc",
       webPreferences: { preload: join(here, "..", "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
     win.removeMenu();
