@@ -53,6 +53,8 @@ jobs:
         run: npm ci && npm test
       - name: 客户端测试（mihomo -t、sing-box check、xray run -test 校验生成的配置）
         working-directory: app
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1" # 单元测试用不到 Electron 本体，少一次从 GitHub 下载
         run: |
           npm ci
           node scripts/fetch-core.mjs
@@ -83,6 +85,8 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1" # electron-builder 会自己下载要打包的 Electron，不用 npm 再下一份
       - name: 打包
         run: npm run dist:${{ matrix.target }}
         env:
