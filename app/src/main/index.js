@@ -10,6 +10,7 @@ import yaml from "js-yaml";
 import { parseSubscription, wrapProxies } from "./convert.js";
 import { Core } from "./core.js";
 import { binName, CORE_IDS, CORES, downloadCore, downloadRuleSet, latestVersion, withMirror } from "./core-download.js";
+import { toTraditional } from "../zh.js";
 import { clientNodes, PROTOCOLS, prepare, REALITY_TARGETS, serviceScript, shareLinks, SINGBOX_SERVER_VERSION, uninstallScript } from "./deploy.js";
 import { convert, TARGETS } from "./converter.js";
 import { coreKind, generate } from "./enhance.js";
@@ -959,17 +960,20 @@ function main() {
   }
 
   const MODES = { rule: "规则", global: "全局", direct: "直连" };
+  // 托盘菜单是系统原生的，不在页面里：选了繁体时在这里转换
+  const zh = (text) => (settings().script === "hans" ? text : toTraditional(text));
+  const zhMenu = (items) => items.map((it) => ({ ...it, ...(it.label ? { label: zh(it.label) } : {}), ...(it.submenu ? { submenu: zhMenu(it.submenu) } : {}) }));
   function updateTray() {
     if (!tray) return;
     const s = settings();
     const proxying = core.status === "running" && (sysproxyOn || s.tun.enable);
     tray.setImage(trayIcon(proxying));
-    tray.setToolTip(`Ondine · ${core.spec.label} · ${MODES[s.mode]}模式` + (sysproxyOn ? " · 系统代理" : "") + (s.tun.enable ? " · 虚拟网卡" : "") + (core.status === "running" ? "" : " · 内核未运行"));
+    tray.setToolTip(zh(`Ondine · ${core.spec.label} · ${MODES[s.mode]}模式` + (sysproxyOn ? " · 系统代理" : "") + (s.tun.enable ? " · 虚拟网卡" : "") + (core.status === "running" ? "" : " · 内核未运行")));
     const toggle = (patch) => setSettings(patch).catch((err) => (err.message === "NEED_TUN_PERMISSION" ? showWindow("settings") : toast(err.message, "error")));
     const active = activeIds();
     const current = profiles.get(active[0]);
     const installed = CORE_IDS.filter((id) => !CORES[id].sidecarOnly && existsSync(binPath(id)));
-    const menu = Menu.buildFromTemplate([
+    const menu = Menu.buildFromTemplate(zhMenu([
       { label: "打开 Ondine", click: () => showWindow() },
       { type: "separator" },
       ...Object.entries(MODES).map(([mode, label]) => ({ label: label + "模式", type: "radio", checked: s.mode === mode, click: () => toggle({ mode }) })),
@@ -996,7 +1000,7 @@ function main() {
       { label: "重启内核", click: () => methods.restartCore().catch((err) => toast(err.message, "error")) },
       { type: "separator" },
       { label: "退出", click: () => quit() },
-    ]);
+    ]));
     tray.setContextMenu(menu);
   }
 

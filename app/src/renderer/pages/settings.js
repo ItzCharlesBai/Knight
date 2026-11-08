@@ -209,7 +209,11 @@ export default function settings(root, ctx) {
         ${sw("autoLaunch", "开机启动", "")}
         ${sw("silentStart", "静默启动", "启动时不打开窗口，只在托盘显示")}
         ${sw("closeToTray", "关闭窗口时留在托盘", "关闭后内核继续运行；从托盘菜单退出")}
-        ${select("font", "字体", "思源黑体随应用打包，在各个系统上看起来都一样；系统字体用 Windows 的微软雅黑、Mac 的苹方", [
+        ${select("script", "文字", "界面用繁体还是简体；切换后界面会重新载入", [
+          ["hant", "繁體中文"],
+          ["hans", "简体中文"],
+        ])}
+        ${select("font", "字体", "简体默认用随应用打包的思源黑体，繁体默认用系统的正黑体（Windows）或苹方（Mac）；「系统字体」都用系统自带的", [
           ["sans", "思源黑体（默认）"],
           ["system", "系统字体"],
         ])}

@@ -1,6 +1,7 @@
 // 界面入口：导航、全局状态、实时流量与日志；各页面在 pages/ 下
 import { createApi } from "./api.js";
 import { createBurst, createScene } from "./fx.js";
+import { useTraditional } from "./i18n.js";
 import { html, icon, patch, speed, toast } from "./lib.js";
 import home from "./pages/home.js";
 import proxies from "./pages/proxies.js";
@@ -179,9 +180,19 @@ const scene = createScene(document.getElementById("scene"));
 const burst = createBurst(document.getElementById("burst"));
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
 let lastLook = "";
+let appliedScript = "";
 // 天气写在根元素上；动态效果关掉、系统要求减少动画、窗口藏起来时都停下
 function applyTheme() {
   const { theme, motion, font } = ctx.state.settings;
+  const script = ctx.state.settings.script === "hans" ? "hans" : "hant";
+  // 繁体 / 简体：第一次就定下来；之后切换时重新载入界面
+  if (appliedScript && appliedScript !== script) return location.reload();
+  if (!appliedScript) {
+    appliedScript = script;
+    document.documentElement.lang = script === "hant" ? "zh-Hant-TW" : "zh-CN";
+    document.documentElement.dataset.script = script;
+    if (script === "hant") useTraditional();
+  }
   const moving = motion && !reduced.matches;
   document.documentElement.dataset.theme = theme;
   document.documentElement.dataset.font = font;

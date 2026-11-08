@@ -2,7 +2,7 @@
   "name": "ondine",
   "productName": "Ondine",
   "desktopName": "ondine.desktop",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Ondine：多内核（mihomo / sing-box / Xray / Juicity）的桌面代理客户端，内置防 DNS / WebRTC / IPv6 泄露、订阅自动转换、多订阅同时使用、共享订阅和 VPS 管理",
   "author": "Ondine",
@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "js-yaml": "^4.1.0",
+    "opencc-js": "1.4.2",
     "qrcode-generator": "^2.0.4",
     "ssh2": "^1.17.0"
   },

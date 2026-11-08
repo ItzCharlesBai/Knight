@@ -73,6 +73,14 @@
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .3 0 0 0 0 .3 0 0 0 0 .29 0 0 0 .62 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)'/%3E%3C/svg%3E");
   --ease: cubic-bezier(0.22, 0.8, 0.24, 1);
 }
+/* 繁体：用系统的繁体黑体（Windows 微軟正黑體、Mac 蘋方-繁），没有时用打包的思源黑体 */
+:root[data-script="hant"] {
+  --sans: var(--ui-latin), "Microsoft JhengHei UI", "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", "Noto Sans CJK TC", "Noto Sans SC Variable", var(--emoji), sans-serif;
+  --system: var(--sans);
+}
+:root[data-script="hant"] .page.dragging::after {
+  content: "鬆開以匯入設定檔";
+}
 /* 设置里选「系统字体」：Windows 用微软雅黑，Mac 用苹方 */
 :root[data-font="system"] {
   --main: var(--system);
