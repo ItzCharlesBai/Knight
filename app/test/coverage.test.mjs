@@ -9,7 +9,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { parseClientConfig } from "../src/main/clients.js";
 import { parseSubscription, wrapProxies } from "../src/main/convert.js";
-import { assetName, extractCore } from "../src/main/core-download.js";
+import { assetName, extractCore, fetchRetry, latestVersion, retry } from "../src/main/core-download.js";
 import { generate } from "../src/main/enhance.js";
 import { toClientList } from "../src/main/formats.js";
 import { toLink } from "../src/main/links.js";
@@ -222,4 +222,34 @@ test("mihomo -t：Surge / Loon / Quantumult X 导入的节点、Mieru、SSH", { 
   writeFileSync(file, generate({ profile: wrapProxies(all), settings: settings() }).text);
   const out = execFileSync(mihomo, ["-t", "-d", dir, "-f", file], { encoding: "utf8", timeout: 120000 });
   assert.match(out, /test is successful/, out);
+});
+
+test("下载内核：GitHub 临时回 5xx 或断网时重试，404 不重试", async () => {
+  const saved = { ...retry };
+  retry.wait = () => 0;
+  try {
+    // CI 里遇到过：version.txt 先回 504，再试一次就好了
+    const replies = [504, "network", 200];
+    const calls = [];
+    const fakeFetch = async (url) => {
+      calls.push(url);
+      const r = replies.shift();
+      if (r === "network") throw new TypeError("fetch failed");
+      return new Response(r === 200 ? "v1.19.33\n" : "gateway timeout", { status: r });
+    };
+    assert.equal(await latestVersion({ id: "mihomo", fetch: fakeFetch }), "v1.19.33");
+    assert.equal(calls.length, 3);
+    // 真正的 404（文件不存在）不重试，直接报错
+    let n = 0;
+    const missing = async () => (n++, new Response("not found", { status: 404 }));
+    await assert.rejects(latestVersion({ id: "mihomo", fetch: missing }), /下载失败 404/);
+    assert.equal(n, 1);
+    // 一直失败：试满次数后把最后一次的结果交出去
+    let m = 0;
+    const down = async () => (m++, new Response("", { status: 503 }));
+    assert.equal((await fetchRetry(down, "https://example.com/x")).status, 503);
+    assert.equal(m, retry.tries);
+  } finally {
+    Object.assign(retry, saved);
+  }
 });

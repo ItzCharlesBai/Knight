@@ -87,8 +87,23 @@ export function assetName(version, platform = process.platform, arch = process.a
 export const withMirror = (url, mirror) => (mirror ? mirror.replace(/\/?$/, "/") + url : url);
 const releases = (id) => `https://github.com/${CORES[id].repo}/releases`;
 
+// GitHub 偶尔会回 5xx、429，或者连接中途断开：等一会儿再试，最多四次（等 2、5、10 秒）
+const TRANSIENT = new Set([408, 425, 429, 500, 502, 503, 504]);
+export const retry = { tries: 4, wait: (attempt) => [2000, 5000, 10000][attempt - 1] || 10000 };
+export async function fetchRetry(fetchFn, url, options) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetchFn(url, options);
+      if (!TRANSIENT.has(res.status) || attempt >= retry.tries) return res;
+    } catch (err) {
+      if (attempt >= retry.tries) throw err;
+    }
+    await new Promise((r) => setTimeout(r, retry.wait(attempt)));
+  }
+}
+
 async function get(fetchFn, url) {
-  const res = await fetchFn(url, { redirect: "follow" });
+  const res = await fetchRetry(fetchFn, url, { redirect: "follow" });
   if (!res.ok) throw new Error(`下载失败 ${res.status}：${url}`);
   return Buffer.from(await res.arrayBuffer());
 }
@@ -104,14 +119,14 @@ export async function latestVersion({ id = "mihomo", fetch: fetchFn = fetch, mir
   }
   // 预发布版：从发布列表里取最新的一个预发布
   if (spec.prerelease) {
-    const res = await fetchFn(`https://api.github.com/repos/${spec.repo}/releases?per_page=15`, { headers: { Accept: "application/vnd.github+json" } });
+    const res = await fetchRetry(fetchFn, `https://api.github.com/repos/${spec.repo}/releases?per_page=15`, { headers: { Accept: "application/vnd.github+json" } });
     if (!res.ok) throw new Error(`无法获取 ${spec.label} 的版本列表（HTTP ${res.status}）`);
     const pre = (await res.json()).find((r) => r && r.prerelease && !r.draft);
     if (!pre) throw new Error(`暂时没有 ${spec.label}`);
     return pre.tag_name;
   }
   // sing-box、Xray 没有 version.txt：/releases/latest 会跳转到 /releases/tag/v1.x.y
-  const res = await fetchFn(withMirror(`${releases(id)}/latest`, mirror), { redirect: "follow" });
+  const res = await fetchRetry(fetchFn, withMirror(`${releases(id)}/latest`, mirror), { redirect: "follow" });
   const tag = /\/releases\/tag\/(v\d+\.\d+\.\d+)(?:$|[?#])/.exec(res.url || "") || /\/releases\/tag\/(v\d+\.\d+\.\d+)"/.exec(await res.text());
   if (!tag) throw new Error(`无法获取 ${spec.label} 最新版本号`);
   return tag[1];
